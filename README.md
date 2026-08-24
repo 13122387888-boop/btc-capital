@@ -23,7 +23,7 @@ npm start
 - `/api/data/sentiment`：恐慌贪婪历史与当前值。
 - `/api/data/onchain`：区块高度、费率与内存池，保留每个字段的来源和单位。
 - `/api/data/defi`：公链 TVL 与稳定币供给序列。
-- `/api/gamma`：Bybit BTC 逐合约 Gamma 聚合代理。
+- `/api/gamma`：Deribit BTC 期权 OI 与标记 IV 驱动的模型 Gamma 聚合代理。
 
 所有统一端点都返回 `status`、`updatedAt`、`sources` 和 `data`；服务端使用短时资源缓存、请求合并和上次成功值回退，浏览器端另保留一层本地成功缓存。可在服务运行时检查数据契约：
 
@@ -48,7 +48,7 @@ node scripts/check-live-services.mjs
 
 工作流位于 `.github/workflows/pages.yml`：在推送到 `main`、手动触发以及每两小时的第 23 分钟运行。GitHub 的计划任务不是精确定时服务，高峰期可能延迟；公开仓库长期无活动时，GitHub 也可能暂停计划任务，因此健康页始终同时展示快照生成时间和上游数据截止时间。连续 6 小时没有新构建时，公网版会明确标记 `STALE SNAPSHOT`。
 
-Pages 构建不需要 API Key，也不会回写自动提交。它会尽力更新 Gate.io 季节性和 Farside/SoSoValue ETF 数据；IBIT 的 Longbridge CLI 快照暂时沿用仓库中的最后一次有效数据。动态行情、恐贪、链上、DeFi 与 Bybit Gamma 会在 Actions runner 中抓取后固化为 JSON。某一上游暂时不可用时，页面会显示降级状态，不会生成演示数据。
+Pages 构建不需要 API Key，也不会回写自动提交。它会尽力更新 Gate.io 季节性和 Farside/SoSoValue ETF 数据；IBIT 的 Longbridge CLI 快照暂时沿用仓库中的最后一次有效数据。动态行情、恐贪、链上、DeFi 与 Deribit Gamma 会在 Actions runner 中抓取后固化为 JSON。Actions cache 会保存最近一次成功的 Deribit 快照；本次抓取失败时可沿用 24 小时内的最后成功值并明确标为降级，超过窗口后停止展示。
 
 本地复现 Pages 构建：
 
@@ -175,9 +175,9 @@ auto-update.cmd remove
 
 ## 期权与 Gamma
 
-期权模块包含两个互不混算的数据集：带交易日的 IBIT 上市期权静态快照，用于观察美国现货比特币 ETF 期权成交结构；Bybit BTC 原生期权实时数据，用于观察单一交易所的 Gamma 分布。两者都不等同于全市场期权情绪。
+期权模块包含两个互不混算的数据集：带交易日的 IBIT 上市期权静态快照，用于观察美国现货比特币 ETF 期权成交结构；Deribit BTC 反向期权公开数据用于估算单一交易所的 Gamma 分布。两者都不等同于全市场期权情绪。
 
-Gamma 图通过 Bybit V5 官方公开接口取得逐合约 Gamma、未平仓量和标的现价，无需 API Key。页面选取至少六天后最近到期日，并将现价上下 25% 内的有效合约按行权价聚合：`Gamma × OI（BTC）× 合约乘数 1 × BTC 现价² × 1%`。有效覆盖率低于 70% 时显示 `UNAVAILABLE`，不会使用成交量或聚合 OI 补造数据。Call 记正、Put 记负只是统一的可视化代理假设，并非观察到的做市商真实持仓。
+Gamma 图读取 Deribit 官方公开 `get_instruments` 与 `get_book_summary_by_currency`，使用 OI、标记 IV、利率、到期时间和到期参考远期价计算反向期权 Black-Scholes Gamma，无需 API Key。模型先按 `指数代理价 = 到期远期价 × exp(-rT)` 还原指数口径，再选取至少六天后最近到期日，将指数代理价上下 25% 内的合约按行权价聚合：`模型 Gamma × OI（BTC）× 指数代理价² × 1%`；Deribit 的 OI 已按 BTC 基础币数量表达，不重复乘合约乘数。覆盖率分母来自所选到期日的 instruments 合约全集；合约覆盖低于 70% 或已知 OI 覆盖低于 85% 时不会生成新结果。快照带 `schemaVersion: 2`，旧公式或非 Deribit 缓存不会被沿用。Call 记正、Put 记负只是统一的可视化代理假设，并非观察到的做市商真实持仓。
 
 ## 文件
 

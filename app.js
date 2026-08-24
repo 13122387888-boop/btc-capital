@@ -10,8 +10,18 @@
   let lastPriceSeries = [];
   let latestBtcPrice = null;
   let currentBtcChange = null;
+  let currentBtcProvider = null;
+  let currentBtcAsOf = null;
+  let currentBtcCandlesAsOf = null;
   let currentFearGreed = null;
   let currentFearGreedLabel = null;
+  let currentFearGreed7dChange = null;
+  let currentFearGreedWindowDays = null;
+  let currentFearGreedAsOf = null;
+  let currentStableSupply = null;
+  let currentStable30dChange = null;
+  let currentStableWindowDays = null;
+  let currentStableAsOf = null;
   let btcCandles = [];
   let fearGreedRows = [];
   let defiTrendRows = [];
@@ -23,6 +33,19 @@
   let currentEtf5d = null;
   let currentEtf20d = null;
   const moduleUpdatedAt = {};
+  const marketInputMeta = {
+    price: { missing: false, stale: false, fetchedAt: null, targetSeconds: 15 * 60 },
+    sentiment: { missing: false, stale: false, fetchedAt: null, targetSeconds: 60 * 60 },
+    defi: { missing: false, stale: false, fetchedAt: null, targetSeconds: 2 * 60 * 60 }
+  };
+  const SIGNAL_THRESHOLDS = Object.freeze({
+    btc24hFlatPercent: 0.1,
+    btcTrendFlatPercent: 1,
+    stablecoinFlatPercent: 0.5,
+    stablecoinStrongPercent: 2,
+    feeLowSatVb: 5,
+    feeHighSatVb: 20
+  });
   const chartState = {
     price: { range: "30D", overlay: true },
     etfRolling: { range: "30D", overlay: false },
@@ -67,11 +90,10 @@
   }
 
   function moduleIsOverdue(module) {
-    if (!isSnapshotMode || module?.kind !== "dynamic") return module?.overdue === true;
-    const age = currentModuleAge(module);
-    const target = snapshotStaleAfterSeconds;
-    if (Number.isFinite(age) && Number.isFinite(target)) return age > target;
-    return module?.overdue === true;
+    if (module?.overdue === true) return true;
+    if (isSnapshotMode && module?.kind === "dynamic") return isSnapshotStale();
+    const age = currentModuleAge(module), target = num(module?.targetSeconds);
+    return Number.isFinite(age) && Number.isFinite(target) ? age > target : false;
   }
 
   function applyDeploymentLabels() {
@@ -169,8 +191,9 @@
   }
   function payloadState(payload, transportState = "live") {
     if (payload?.status === "unavailable") return "error";
+    if (payload?.status === "partial") return "partial";
     if (transportState === "cached") return "cached";
-    return payload?.status === "partial" ? "partial" : "live";
+    return "live";
   }
   function updateCompositeMarketTime() {
     const target = $("market-updated");
@@ -246,7 +269,7 @@
       drawEtfRolling();
       if (lastPriceSeries.length) drawLine($("price-chart"), lastPriceSeries);
     });
-    updateTodayBrief();
+    renderTodayMarketState();
   }
 
   function fitCanvas(canvas) {
@@ -553,7 +576,7 @@
       const spotX = pad.l + (gammaSpot - minStrike) / (maxStrike - minStrike || 1) * plotW;
       if (spotX >= pad.l && spotX <= width - pad.r) {
         ctx.setLineDash([5, 5]); ctx.strokeStyle = "#d8d9d2"; ctx.beginPath(); ctx.moveTo(spotX, pad.t); ctx.lineTo(spotX, height - pad.b); ctx.stroke(); ctx.setLineDash([]);
-        ctx.fillStyle = "#d8d9d2"; ctx.textAlign = "center"; ctx.textBaseline = "top"; ctx.fillText(`BTC $${gammaSpot.toFixed(0)}`, spotX, pad.t + 3);
+        ctx.fillStyle = "#d8d9d2"; ctx.textAlign = "center"; ctx.textBaseline = "top"; ctx.fillText(`指数代理 $${gammaSpot.toFixed(0)}`, spotX, pad.t + 3);
       }
     }
     ctx.fillStyle = "#747b74"; ctx.textAlign = "center"; ctx.textBaseline = "top";
@@ -569,7 +592,7 @@
         { label: "Call 代理 GEX", value: formatGex(row.callGex, true) },
         { label: "Put 代理 GEX", value: formatGex(row.putGex, true) },
         { label: "净代理 GEX", value: formatGex(row.netGex, true) },
-        { label: "距现价", value: strikeDistance(row.strike, gammaSpot) || "—" }
+        { label: "距指数代理价", value: strikeDistance(row.strike, gammaSpot) || "—" }
       ]
     });
   }
@@ -588,65 +611,193 @@
   function strikeDistance(strike, spot) {
     if (!Number.isFinite(strike) || !Number.isFinite(spot) || spot === 0) return "";
     const distance = (strike / spot - 1) * 100;
-    return `距现价 ${distance >= 0 ? "+" : ""}${distance.toFixed(1)}%`;
+    return `距指数代理价 ${distance >= 0 ? "+" : ""}${distance.toFixed(1)}%`;
   }
-  function legacyTodayBrief() {
-    const price = $("today-price-summary"), capital = $("today-flow-summary"), risk = $("today-risk-summary"), updated = $("today-brief-updated");
-    if (price) price.textContent = Number.isFinite(currentBtcChange)
-      ? `BTC 过去 24 小时${currentBtcChange >= 0 ? "上涨" : "下跌"} ${Math.abs(currentBtcChange).toFixed(2)}%，现价 ${fmtUsd(latestBtcPrice, 0)}。`
-      : `BTC ${isSnapshotMode ? "价格快照" : "实时价格"}尚未连接。`;
-    if (capital) capital.textContent = Number.isFinite(currentEtf5d)
-      ? `现货 BTC ETF 最近 5 个交易日${currentEtf5d >= 0 ? "净流入" : "净流出"} ${flow(Math.abs(currentEtf5d)).replace("+", "")}；20 日累计${currentEtf20d >= 0 ? "净流入" : "净流出"} ${flow(Math.abs(currentEtf20d)).replace("+", "")}。`
-      : "ETF 滚动资金流尚未形成完整窗口。";
-    if (risk) {
-      const parts = [];
-      if (Number.isFinite(currentFearGreed)) parts.push(`恐贪 ${currentFearGreed}（${currentFearGreedLabel || fearGreedLabel(currentFearGreed)}）`);
-      if (Number.isFinite(gammaNetGex)) parts.push(`Bybit 净 GEX 代理${gammaNetGex >= 0 ? "为正" : "为负"}`);
-      risk.textContent = parts.length ? `${parts.join("；")}。情绪与 Gamma 只作为风险环境参考。` : "情绪与 Gamma 数据尚未连接。";
+  function classifyStablecoinChange(change) {
+    if (!Number.isFinite(change)) return { label: "数据不足", tone: "neutral", direction: 0, text: "稳定币供给变化暂不可计算。" };
+    const absolute = Math.abs(change);
+    if (absolute <= SIGNAL_THRESHOLDS.stablecoinFlatPercent) {
+      return { label: "基本持平", tone: "neutral", direction: 0, text: `稳定币供给基本持平（${signed(change)}），暂未出现明确扩张或收缩趋势。` };
     }
-    if (updated) {
-      const dynamic = Object.entries(moduleUpdatedAt).filter(([group]) => group !== "health").map(([, value]) => new Date(value)).filter(value => !Number.isNaN(value.getTime())).sort((a, b) => b - a)[0];
-      updated.textContent = `${isSnapshotMode ? "快照数据" : "动态数据"}${dynamic ? `更新至 ${shortUpdatedAt(dynamic)}` : "等待连接"} · ETF 截至 ${staticData.asOf || "—"}`;
-    }
+    const expanding = change > 0;
+    const strong = absolute >= SIGNAL_THRESHOLDS.stablecoinStrongPercent;
+    return {
+      label: `${strong ? "明显" : "小幅"}${expanding ? "扩张" : "收缩"}`,
+      tone: expanding ? "positive" : "negative",
+      direction: expanding ? 1 : -1,
+      text: `稳定币供给${strong ? "明显" : "小幅"}${expanding ? "扩张" : "收缩"}（${signed(change)}）。`
+    };
   }
-  function updateTodayBrief() {
-    const price = $("today-price-summary"), capital = $("today-flow-summary"), risk = $("today-risk-summary"), updated = $("today-brief-updated");
-    if (price) price.textContent = Number.isFinite(currentBtcChange) && Number.isFinite(latestBtcPrice)
-      ? `BTC 过去 24 小时${currentBtcChange > 0 ? "上涨" : currentBtcChange < 0 ? "下跌" : "基本持平"}${currentBtcChange === 0 ? "" : ` ${Math.abs(currentBtcChange).toFixed(2)}%`}，现价 ${fmtUsd(latestBtcPrice, 0)}。`
-      : `BTC ${isSnapshotMode ? "价格快照" : "实时价格"}尚未连接。`;
-    if (capital) {
-      const windowText = (days, value) => value === 0
-        ? `最近 ${days} 个交易日资金基本持平`
-        : `最近 ${days} 个交易日${value > 0 ? "净流入" : "净流出"} ${flow(Math.abs(value)).replace("+", "")}`;
-      const parts = [];
-      if (Number.isFinite(currentEtf5d)) parts.push(windowText(5, currentEtf5d));
-      if (Number.isFinite(currentEtf20d)) parts.push(windowText(20, currentEtf20d));
-      capital.textContent = parts.length
-        ? `现货 BTC ETF ${parts.join("；")}。${Number.isFinite(currentEtf5d) && !Number.isFinite(currentEtf20d) ? "20 日窗口尚未形成。" : ""}`
-        : "ETF 滚动资金流尚未形成完整窗口。";
+
+  function setMarketStateCard(key, model) {
+    const card = $(`market-state-${key}`);
+    if (!card) return;
+    card.dataset.tone = model.tone || "neutral";
+    card.dataset.dataState = model.dataState || "ready";
+    $(`market-state-${key}-label`).textContent = model.label;
+    $(`market-state-${key}-primary`).textContent = model.primary;
+    $(`market-state-${key}-secondary`).textContent = model.secondary;
+    $(`market-state-${key}-reason`).textContent = model.reason;
+    $(`market-state-${key}-asof`).textContent = model.asOf;
+  }
+
+  function trendReturn(days) {
+    const current = Number.isFinite(latestBtcPrice) ? latestBtcPrice : btcCandles.at(-1)?.close;
+    if (!Number.isFinite(current) || !btcCandles.length) return null;
+    const fallbackDate = btcCandles.at(-1)?.date;
+    const referenceValue = currentBtcAsOf || moduleUpdatedAt.market || (fallbackDate ? `${fallbackDate}T00:00:00Z` : "");
+    const reference = typeof referenceValue === "number" ? referenceValue : Date.parse(referenceValue);
+    if (!Number.isFinite(reference)) return null;
+    const dayMs = 86400000, target = reference - days * dayMs;
+    const candidates = btcCandles.map(row => ({ row, timestamp: Date.parse(`${row.date}T00:00:00Z`) })).filter(item => Number.isFinite(item.timestamp));
+    const anchor = candidates.reduce((best, item) => !best || Math.abs(item.timestamp - target) < Math.abs(best.timestamp - target) ? item : best, null);
+    if (!anchor || Math.abs(anchor.timestamp - target) > 1.5 * dayMs || !Number.isFinite(anchor.row.close) || anchor.row.close <= 0) return null;
+    return {
+      value: (current / anchor.row.close - 1) * 100,
+      anchorDate: anchor.row.date,
+      windowDays: (reference - anchor.timestamp) / dayMs,
+      referenceAt: new Date(reference).toISOString()
+    };
+  }
+
+  function marketInputState(group) {
+    const state = sourceStates[group];
+    if (!state) return "pending";
+    if (state === "error") return "error";
+    const meta = marketInputMeta[group] || {};
+    if (meta.missing === true) return "error";
+    if (meta.stale === true) return "stale";
+    const fetchedAt = Date.parse(meta.fetchedAt || "");
+    if (!isSnapshotMode && Number.isFinite(fetchedAt) && Number.isFinite(meta.targetSeconds) && Date.now() - fetchedAt > meta.targetSeconds * 1000) return "stale";
+    if (isSnapshotStale()) return "stale";
+    return state;
+  }
+
+  function completedUtcWeekdaysSince(asOf, now = Date.now()) {
+    const start = Date.parse(/^\d{4}-\d{2}-\d{2}$/.test(String(asOf || "")) ? `${asOf}T00:00:00Z` : String(asOf || ""));
+    if (!Number.isFinite(start)) return null;
+    const current = new Date(now);
+    const today = Date.UTC(current.getUTCFullYear(), current.getUTCMonth(), current.getUTCDate());
+    const latestCompletedDate = today - (current.getUTCHours() < 23 ? 86400000 : 0);
+    let weekdays = 0;
+    for (let cursor = start + 86400000; cursor <= latestCompletedDate; cursor += 86400000) {
+      const day = new Date(cursor).getUTCDay();
+      if (day >= 1 && day <= 5) weekdays += 1;
     }
-    if (risk) {
-      const parts = [];
-      if (Number.isFinite(currentFearGreed)) parts.push(`恐贪 ${currentFearGreed}（${currentFearGreedLabel || fearGreedLabel(currentFearGreed)}）`);
-      if (Number.isFinite(gammaNetGex)) parts.push(`Bybit 净 GEX 代理${gammaNetGex > 0 ? "为正" : gammaNetGex < 0 ? "为负" : "接近中性"}`);
-      risk.textContent = parts.length ? `${parts.join("；")}。情绪与 Gamma 只作为风险环境参考。` : "情绪与 Gamma 数据尚未连接。";
+    return weekdays;
+  }
+
+  function marketDeliveryNote(state) {
+    if (state === "cached") return " 当前读数来自浏览器缓存。";
+    if (state === "partial") return " 当前为部分上游可用状态。";
+    return "";
+  }
+
+  function directionWithBand(value, band) {
+    if (!Number.isFinite(value)) return null;
+    if (value > band) return 1;
+    if (value < -band) return -1;
+    return 0;
+  }
+
+  function renderTodayMarketState() {
+    const etfAsOf = staticData?.sources?.etfFlows?.asOf || staticData?.asOf || "—";
+    const capitalReady = Number.isFinite(currentEtf5d) && Number.isFinite(currentEtf20d);
+    const completedWeekdays = completedUtcWeekdaysSince(etfAsOf);
+    const capitalDateMissing = !Number.isFinite(completedWeekdays);
+    const capitalStale = Number.isFinite(completedWeekdays) && completedWeekdays > 2;
+    let capitalLabel = "数据不足", capitalTone = "neutral", capitalReason = "ETF 5D 或 20D 窗口尚未形成，暂不判断资金方向。";
+    if (capitalReady) {
+      const shortDirection = Math.sign(currentEtf5d), mediumDirection = Math.sign(currentEtf20d);
+      if (shortDirection > 0 && mediumDirection > 0) { capitalLabel = "持续净流入"; capitalTone = "positive"; capitalReason = "ETF 5D 与 20D 净流均为正，短中期资金方向一致。"; }
+      else if (shortDirection < 0 && mediumDirection < 0) { capitalLabel = "持续净流出"; capitalTone = "negative"; capitalReason = "ETF 5D 与 20D 净流均为负，短中期资金同步承压。"; }
+      else if (shortDirection > 0) { capitalLabel = "短期转强"; capitalTone = "mixed"; capitalReason = "ETF 5D 转为净流入，但 20D 尚未确认。"; }
+      else if (shortDirection < 0) { capitalLabel = "短期转弱"; capitalTone = "mixed"; capitalReason = "ETF 5D 转为净流出，但 20D 仍有支撑。"; }
+      else { capitalLabel = "短期持平"; capitalReason = "ETF 5D 净流接近零，先观察 20D 方向。"; }
     }
-    if (updated) {
-      const dynamic = Object.entries(moduleUpdatedAt).filter(([group]) => group !== "health").map(([, value]) => new Date(value)).filter(value => !Number.isNaN(value.getTime())).sort((a, b) => b - a)[0];
-      updated.textContent = `${isSnapshotMode ? "快照数据" : "动态数据"}${dynamic ? `更新于 ${shortUpdatedAt(dynamic)}` : "等待连接"} · ETF 截至 ${staticData?.asOf || "—"}`;
+    if (capitalDateMissing) { capitalLabel = "截止日无效"; capitalTone = "neutral"; capitalReason = "ETF 快照缺少有效截止日，暂不输出资金方向。"; }
+    else if (capitalStale) { capitalLabel = "快照已过期"; capitalTone = "neutral"; capitalReason = "ETF 快照已落后超过 2 个已完成工作日，仅保留历史读数，不输出资金方向。"; }
+    setMarketStateCard("capital", {
+      label: capitalLabel, tone: capitalTone,
+      dataState: capitalDateMissing ? "error" : capitalStale ? "stale" : capitalReady ? "ready" : "error",
+      primary: Number.isFinite(currentEtf5d) ? flow(currentEtf5d) : "—",
+      secondary: Number.isFinite(currentEtf20d) ? flow(currentEtf20d) : "—",
+      reason: capitalReason,
+      asOf: `Farside / SoSoValue · ${capitalReady && !capitalDateMissing ? `截至 ${etfAsOf}` : "截止日待确认"}`
+    });
+
+    const trendState = marketInputState("price");
+    const return7d = trendReturn(7), return30d = trendReturn(30);
+    const direction7d = directionWithBand(return7d?.value, SIGNAL_THRESHOLDS.btcTrendFlatPercent);
+    const direction30d = directionWithBand(return30d?.value, SIGNAL_THRESHOLDS.btcTrendFlatPercent);
+    let trendLabel = "数据不足", trendTone = "neutral", trendReason = "BTC 日 K 历史窗口不足，暂不判断趋势。";
+    if (direction7d !== null && direction30d !== null) {
+      if (direction7d > 0 && direction30d > 0) { trendLabel = "短中期上行"; trendTone = "positive"; trendReason = "BTC 7D 与 30D 回报均高于 +1% 横盘带。"; }
+      else if (direction7d < 0 && direction30d < 0) { trendLabel = "短中期走弱"; trendTone = "negative"; trendReason = "BTC 7D 与 30D 回报均低于 -1% 横盘带。"; }
+      else if (direction7d > 0 && direction30d <= 0) { trendLabel = "短线修复"; trendTone = "mixed"; trendReason = "BTC 7D 转强，但 30D 趋势尚未同步确认。"; }
+      else if (direction7d < 0 && direction30d >= 0) { trendLabel = "短线回撤"; trendTone = "mixed"; trendReason = "BTC 7D 转弱，但 30D 方向仍未同步走弱。"; }
+      else { trendLabel = "横盘 / 分歧"; trendReason = "至少一个周期位于 ±1% 横盘带内，方向尚不一致。"; }
     }
+    const trendBlocked = trendState === "pending" || trendState === "error" || trendState === "stale";
+    setMarketStateCard("trend", {
+      label: trendState === "pending" ? "正在加载" : trendState === "error" ? "暂不可用" : trendState === "stale" ? "快照已过期" : trendLabel,
+      tone: trendBlocked ? "neutral" : trendTone,
+      dataState: trendState,
+      primary: trendState === "error" || trendState === "pending" ? "—" : Number.isFinite(return7d?.value) ? signed(return7d.value) : "—",
+      secondary: trendState === "error" || trendState === "pending" ? "—" : Number.isFinite(return30d?.value) ? signed(return30d.value) : "—",
+      reason: trendState === "pending" ? "正在读取现价与已收盘日 K，暂不输出方向。"
+        : trendState === "error" ? "行情服务当前不可用，方向结论已暂停。"
+          : trendState === "stale" ? "快照超过有效期，仅保留历史读数，不输出趋势方向。"
+            : `${trendReason}${Number.isFinite(latestBtcPrice) ? ` 当前价 ${fmtUsd(latestBtcPrice, 0)}。` : ""}${marketDeliveryNote(trendState)}`,
+      asOf: `现价：${currentBtcProvider || "待确认"}${currentBtcAsOf ? ` · ${shortUpdatedAt(currentBtcAsOf)}` : ""} / K线：Gate.io${currentBtcCandlesAsOf ? ` · ${shortUpdatedAt(currentBtcCandlesAsOf)}` : ""}`
+    });
+
+    const sentimentState = marketInputState("sentiment");
+    const sentimentLabel = Number.isFinite(currentFearGreed) ? (currentFearGreedLabel || fearGreedLabel(currentFearGreed)) : "数据不足";
+    const sentimentTone = !Number.isFinite(currentFearGreed) ? "neutral" : currentFearGreed > 75 ? "negative" : currentFearGreed > 55 ? "mixed" : currentFearGreed < 25 ? "negative" : currentFearGreed < 45 ? "mixed" : "neutral";
+    const sentimentReason = Number.isFinite(currentFearGreed)
+      ? `沿用官方五档区间；${sentimentLabel.includes("贪婪") ? "情绪偏热不等于价格立即见顶" : sentimentLabel.includes("恐慌") ? "情绪偏冷不等于价格立即见底" : "当前处于中性区间"}。`
+      : "恐慌与贪婪指数暂不可用。";
+    setMarketStateCard("sentiment", {
+      label: sentimentState === "pending" ? "正在加载" : sentimentState === "error" ? "暂不可用" : sentimentState === "stale" ? "快照已过期" : sentimentLabel,
+      tone: ["pending", "error", "stale"].includes(sentimentState) ? "neutral" : sentimentTone,
+      dataState: sentimentState,
+      primary: ["pending", "error"].includes(sentimentState) ? "—" : Number.isFinite(currentFearGreed) ? String(Math.round(currentFearGreed)) : "—",
+      secondary: ["pending", "error"].includes(sentimentState) ? "—" : Number.isFinite(currentFearGreed7dChange) ? `${currentFearGreed7dChange > 0 ? "+" : ""}${currentFearGreed7dChange.toFixed(0)} 点` : "—",
+      reason: sentimentState === "pending" ? "正在读取恐慌与贪婪指数，暂不输出情绪结论。"
+        : sentimentState === "error" ? "情绪服务当前不可用，结论已暂停。"
+          : sentimentState === "stale" ? "快照超过有效期，仅保留历史读数，不输出情绪结论。"
+            : `${sentimentReason}${Number.isFinite(currentFearGreedWindowDays) ? ` 变化窗口 ${currentFearGreedWindowDays.toFixed(0)} 个自然日。` : ""}${marketDeliveryNote(sentimentState)}`,
+      asOf: `Alternative.me · ${currentFearGreedAsOf ? `截至 ${currentFearGreedAsOf}` : "截止日待确认"}`
+    });
+
+    const liquidityState = marketInputState("defi");
+    const liquidity = classifyStablecoinChange(currentStable30dChange);
+    const windowReady = Number.isFinite(currentStableWindowDays) && currentStableWindowDays >= 28 && currentStableWindowDays <= 35;
+    setMarketStateCard("liquidity", {
+      label: liquidityState === "pending" ? "正在加载" : liquidityState === "error" ? "暂不可用" : liquidityState === "stale" ? "快照已过期" : windowReady ? liquidity.label : "数据不足",
+      tone: ["pending", "error", "stale"].includes(liquidityState) ? "neutral" : windowReady ? liquidity.tone : "neutral",
+      dataState: liquidityState,
+      primary: ["pending", "error"].includes(liquidityState) ? "—" : windowReady ? signed(currentStable30dChange) : "—",
+      secondary: ["pending", "error"].includes(liquidityState) ? "—" : Number.isFinite(currentStableSupply) ? `$${compact(currentStableSupply)}` : "—",
+      reason: liquidityState === "pending" ? "正在读取稳定币供给历史，暂不输出流动性方向。"
+        : liquidityState === "error" ? "DefiLlama 当前不可用，流动性结论已暂停。"
+          : liquidityState === "stale" ? "快照超过有效期，仅保留历史读数，不输出流动性方向。"
+            : windowReady ? `${liquidity.text} 供给变化不等于资金一定买入 BTC。${marketDeliveryNote(liquidityState)}` : "历史窗口不在 28–35 天内，暂不推断月度方向。",
+      asOf: `DefiLlama · ${currentStableAsOf ? `截至 ${currentStableAsOf}` : "截止日待确认"}`
+    });
   }
 
   function clearGammaValues() {
     gammaChartRows = [];
     gammaSpot = null;
     gammaNetGex = null;
-    ["gamma-net", "gamma-positive", "gamma-negative", "gamma-expiry", "gamma-zero", "gamma-bias"].forEach(id => {
+    ["gamma-net", "gamma-positive", "gamma-negative", "gamma-expiry", "gamma-max-pain", "gamma-pc-oi"].forEach(id => {
       if ($(id)) $(id).textContent = "—";
     });
     if ($("gamma-key-insight")) {
       const text = $("gamma-key-insight").querySelector("span") || $("gamma-key-insight");
-      text.textContent = "逐合约 Gamma 数据恢复后，将在这里给出峰值、距离与局部过零参考位。";
+      text.textContent = "Deribit OI 与标记 IV 数据恢复后，将在这里给出模型 Gamma 峰值、Max Pain 与局部过零参考位。";
     }
   }
 
@@ -654,17 +805,19 @@
     const panel = document.querySelector(".gamma-panel"), state = $("gamma-state"), message = $("gamma-message");
     if (!panel || !state || !message) return;
     try {
-      const response = await fetch(endpoints.gamma, { cache: "no-store", headers: { accept: "application/json" } });
-      const data = await response.json();
-      if (!response.ok || data.status !== "live" || !Array.isArray(data.byStrike) || !data.byStrike.length) {
-        clearGammaValues();
-        panel.classList.add("is-unavailable"); panel.classList.remove("is-live");
-        state.textContent = "UNAVAILABLE"; state.classList.remove("live", "partial", "cached"); state.classList.add("error");
-        setState("gamma", "error", data.asOf || Date.now());
-        message.textContent = data.message || "Bybit 逐合约 Gamma 数据暂不可用；不会以成交量或聚合 OI 伪造 Gamma 敞口。";
-        updateTodayBrief();
-        return;
-      }
+      const result = await getJSON("serviceGammaV2", endpoints.gamma, 5 * 60 * 1000, 30_000);
+      const data = result.value || {};
+      const successAt = Date.parse(data.lastSuccessAt || data.asOf || ""), gammaAgeMs = Number.isFinite(successAt) ? Date.now() - successAt : NaN;
+      const usable = data.schemaVersion === 2
+        && data.venue === "Deribit"
+        && data.gammaSource === "deribit-inverse-bs-v2-from-mark-iv"
+        && ["live", "partial"].includes(data.status)
+        && Number.isFinite(gammaAgeMs)
+        && gammaAgeMs >= -5 * 60 * 1000
+        && gammaAgeMs <= 24 * 60 * 60 * 1000
+        && Array.isArray(data.byStrike)
+        && data.byStrike.length;
+      if (!usable) throw new Error("invalid gamma payload");
       gammaChartRows = data.byStrike.map(row => ({ strike: num(row.strike), callGex: num(row.callGex), putGex: num(row.putGex), netGex: num(row.netGex) })).filter(row => [row.strike, row.callGex, row.putGex, row.netGex].every(Number.isFinite)).sort((a, b) => a.strike - b.strike);
       gammaSpot = num(data.spot);
       gammaNetGex = num(data.netGex);
@@ -676,30 +829,37 @@
       $("gamma-positive").textContent = `$${positive.strike} · ${strikeDistance(positive.strike, gammaSpot)}`;
       $("gamma-negative").textContent = `$${negative.strike} · ${strikeDistance(negative.strike, gammaSpot)}`;
       $("gamma-expiry").textContent = data.expiry || "—";
-      if ($("gamma-zero")) $("gamma-zero").textContent = Number.isFinite(zeroReference) ? `$${Math.round(zeroReference).toLocaleString("en-US")}` : "本窗口无过零";
-      if ($("gamma-bias")) { $("gamma-bias").textContent = gammaNetGex >= 0 ? "正 Gamma 代理" : "负 Gamma 代理"; tone($("gamma-bias"), gammaNetGex); }
+      if ($("gamma-max-pain")) $("gamma-max-pain").textContent = Number.isFinite(num(data.maxPain)) ? fmtUsd(num(data.maxPain), 0) : "—";
+      if ($("gamma-pc-oi")) $("gamma-pc-oi").textContent = Number.isFinite(num(data.putCallOiRatio)) ? num(data.putCallOiRatio).toFixed(2) : "—";
       if ($("gamma-key-insight")) {
         const keyText = $("gamma-key-insight").querySelector("span") || $("gamma-key-insight");
-        keyText.textContent = `现价 ${fmtUsd(gammaSpot, 0)}；Call 峰值在 $${positive.strike.toLocaleString("en-US")}（${strikeDistance(positive.strike, gammaSpot)}），Put 峰值在 $${negative.strike.toLocaleString("en-US")}（${strikeDistance(negative.strike, gammaSpot)}）。${Number.isFinite(zeroReference) ? `最近的局部净 GEX 过零参考位约 $${Math.round(zeroReference).toLocaleString("en-US")}；它不是严格的 dealer Gamma Flip。` : "当前筛选窗口内没有局部净 GEX 过零点。"}`;
+        keyText.textContent = `指数代理价 ${fmtUsd(gammaSpot, 0)}；Call 峰值在 $${positive.strike.toLocaleString("en-US")}（${strikeDistance(positive.strike, gammaSpot)}），Put 峰值在 $${negative.strike.toLocaleString("en-US")}（${strikeDistance(negative.strike, gammaSpot)}）。${Number.isFinite(zeroReference) ? `局部净 GEX 过零参考约 $${Math.round(zeroReference).toLocaleString("en-US")}；` : ""}Max Pain 参考 ${Number.isFinite(num(data.maxPain)) ? fmtUsd(num(data.maxPain), 0) : "暂缺"}。这些都不是严格的 dealer Gamma Flip。`;
       }
-      message.textContent = `${isSnapshotMode ? "GitHub Actions 定时抓取的 " : ""}Bybit 最近有效到期，覆盖 ${Math.round(num(data.coverage) * 100)}% 的筛选合约；数值为 Call 正、Put 负的净 GEX 代理。`;
-      panel.classList.remove("is-unavailable"); panel.classList.add("is-live"); state.textContent = sourceStateLabel("live"); state.classList.remove("error", "partial", "cached", "live"); state.classList.add(isSnapshotStale() ? "partial" : "live");
-      setState("gamma", "live", data.asOf);
-      updateTodayBrief();
+      const contractCoverage = num(data.coverage), oiCoverage = num(data.coverageDetail?.oiRatio);
+      const degraded = data.stale === true || data.status === "partial" || result.state === "cached" || isSnapshotStale();
+      message.textContent = data.message || `${isSnapshotMode ? "GitHub Actions 定时抓取的 " : ""}Deribit 最近有效到期；模型 Gamma 覆盖 ${Number.isFinite(contractCoverage) ? Math.round(contractCoverage * 100) + "% 合约" : "合约口径待确认"}${Number.isFinite(oiCoverage) ? `、${Math.round(oiCoverage * 100)}% OI` : ""}。`;
+      panel.classList.remove("is-unavailable"); panel.classList.add("is-live"); panel.classList.toggle("is-degraded", degraded);
+      const displayState = data.stale === true || result.state === "cached" ? "cached" : data.status === "partial" ? "partial" : "live";
+      state.textContent = sourceStateLabel(displayState); state.classList.remove("error", "partial", "cached", "live"); state.classList.add(displayState === "cached" ? "cached" : displayState === "partial" || isSnapshotStale() ? "partial" : "live");
+      setState("gamma", displayState, data.asOf || data.lastSuccessAt);
+      renderTodayMarketState();
       requestAnimationFrame(drawGammaChart);
     } catch {
       clearGammaValues();
-      panel.classList.add("is-unavailable"); panel.classList.remove("is-live"); state.textContent = "UNAVAILABLE"; state.classList.remove("live", "partial", "cached"); state.classList.add("error");
+      panel.classList.add("is-unavailable"); panel.classList.remove("is-live", "is-degraded"); state.textContent = "UNAVAILABLE"; state.classList.remove("live", "partial", "cached"); state.classList.add("error");
       setState("gamma", "error", Date.now());
-      message.textContent = isSnapshotMode ? "本次 Bybit Gamma 快照不可用；IBIT 成交量与总 OI 快照仍可正常使用。" : "Bybit 免费 Gamma 接口暂不可达。请通过本地服务器打开页面；IBIT 成交量与总 OI 快照仍可正常使用。";
-      updateTodayBrief();
+      message.textContent = isSnapshotMode ? "本次 Deribit Gamma 快照不可用，且没有 24 小时内的最后成功值；IBIT 成交量与总 OI 快照仍可正常使用。" : "Deribit 官方公开接口暂不可达，且本机没有 24 小时内的最后成功值；IBIT 快照仍可正常使用。";
+      renderTodayMarketState();
     }
   }
   function updateMarketInsight() {
     if (!$("market-insight")) return;
     if (!Number.isFinite(currentBtcChange) && !Number.isFinite(currentFearGreed)) return;
     const parts = [];
-    if (Number.isFinite(currentBtcChange)) parts.push(`BTC 过去 24 小时${currentBtcChange >= 0 ? "上涨" : "下跌"} ${Math.abs(currentBtcChange).toFixed(2)}%`);
+    if (Number.isFinite(currentBtcChange)) {
+      const flat = Math.abs(currentBtcChange) < SIGNAL_THRESHOLDS.btc24hFlatPercent;
+      parts.push(flat ? `BTC 过去 24 小时基本持平（${signed(currentBtcChange)}）` : `BTC 过去 24 小时${currentBtcChange > 0 ? "上涨" : "下跌"} ${Math.abs(currentBtcChange).toFixed(2)}%`);
+    }
     const label = currentFearGreedLabel || fearGreedLabel(currentFearGreed);
     if (Number.isFinite(currentFearGreed)) parts.push(`情绪指数 ${currentFearGreed}，处于${label}`);
     const warning = label === "极度贪婪" ? "情绪偏热，追涨风险上升。" : label === "极度恐慌" ? "情绪偏冷，市场风险偏好较弱。" : "情绪尚未进入极端区间。";
@@ -835,26 +995,21 @@
     } else $("onchain-insight").querySelector("span").textContent = "Blockstream、Blockchair 与 mempool.space 当前均不可达，暂不判断拥堵程度。";
   }
 
-  async function loadDefi() {
-    const results = await Promise.allSettled([getJSON("chains", endpoints.chains, 900000), getJSON("stables", endpoints.stables, 1800000)]);
-    setState("defi", groupState(results));
-    if (results[0].status === "fulfilled") { const chains = (results[0].value.value || []).filter(c => Number.isFinite(num(c.tvl))); const total = chains.reduce((s, c) => s + num(c.tvl), 0); const top = chains.sort((a, b) => num(b.tvl) - num(a.tvl))[0]; $("defi-tvl").textContent = `$${compact(total)}`; if (top) { $("top-chain").textContent = top.name || "—"; $("top-chain-tvl").textContent = `TVL ${fmtUsd(num(top.tvl))}`; } }
-    if (results[1].status === "fulfilled") { const rows = results[1].value.value || []; const getSupply = row => num(row?.totalCirculatingUSD?.peggedUSD); const valid = rows.filter(r => Number.isFinite(getSupply(r))); const last = valid[valid.length - 1], prior = valid[Math.max(0, valid.length - 31)]; const current = getSupply(last), old = getSupply(prior); $("stable-supply").textContent = `$${compact(current)}`; const chg = old ? (current / old - 1) * 100 : null; $("stable-change").textContent = signed(chg); tone($("stable-change"), chg); $("defi-insight").querySelector("span").textContent = Number.isFinite(chg) ? `过去约 30 天稳定币供给${chg >= 0 ? "增加" : "减少"} ${Math.abs(chg).toFixed(2)}%，链上美元流动性${chg >= 0 ? "正在扩张" : "正在收缩"}。` : "稳定币供给变化暂不可计算。"; const monthly = new Map(); valid.forEach(row => monthly.set(new Date(num(row.date) * 1000).toISOString().slice(0, 7), getSupply(row))); const priceMap = new Map(staticData.btcMonthly); if (Number.isFinite(latestBtcPrice)) priceMap.set(new Date().toISOString().slice(0, 7), latestBtcPrice); defiTrendRows = [...monthly.entries()].map(([label, value]) => ({ label, left: value / 1e9, right: priceMap.get(label) ?? null })).filter(r => Number.isFinite(r.right)).slice(-24); requestAnimationFrame(() => drawDualLine($("defi-chart"), defiTrendRows, { leftFormat: v => `$${v.toFixed(0)}B`, rightFormat: v => `$${Math.round(v / 1000)}k` })); }
-    else $("defi-insight").querySelector("span").textContent = "稳定币公开接口当前不可达，暂不判断链上流动性方向。";
-  }
-
   async function loadMarketService() {
     try {
       const result = await getJSON("serviceMarket", endpoints.market, 120000, 10000);
       const payload = result.value || {}, data = payload.data || {}, assets = data.assets || {}, updatedAt = payload.updatedAt || Date.now();
       const state = payloadState(payload, result.state);
       setState("price", state, updatedAt); setState("market", state, updatedAt); updateCompositeMarketTime();
+      currentBtcProvider = data.btcPriceProvider || data.priceProvider || "统一数据服务";
+      currentBtcAsOf = data.btcPriceAsOf || updatedAt;
+      currentBtcCandlesAsOf = data.btcCandlesAsOf || updatedAt;
       const btc = assets.bitcoin || {}, eth = assets.ethereum || {};
       const btcPrice = num(btc.usd), ethPrice = num(eth.usd), btcChange = num(btc.usd24hChange), ethChange = num(eth.usd24hChange);
       if (Number.isFinite(btcPrice)) {
         latestBtcPrice = btcPrice; currentBtcChange = btcChange;
         $("btc-price").textContent = fmtUsd(btcPrice, 0); $("ticker-btc").textContent = fmtUsd(btcPrice, 0); $("ticker-eth").textContent = fmtUsd(ethPrice, 0);
-        $("btc-change").textContent = `${signed(btcChange)} · 过去 24 小时 · ${data.priceProvider || "统一数据服务"}`;
+        $("btc-change").textContent = `${signed(btcChange)} · 过去 24 小时 · ${data.btcPriceProvider || data.priceProvider || "统一数据服务"}`;
         $("ticker-btc-change").textContent = signed(btcChange); $("ticker-eth-change").textContent = signed(ethChange);
         tone($("btc-change"), btcChange); tone($("ticker-btc-change"), btcChange); tone($("ticker-eth-change"), ethChange);
       }
@@ -871,14 +1026,24 @@
       if (Number.isFinite(ethDominance)) $("global-eth-dom").textContent = signed(ethDominance, "%", 1).replace("+", "");
       if (Number.isFinite(num(global.activeCryptocurrencies))) $("global-coins").textContent = new Intl.NumberFormat("en-US").format(num(global.activeCryptocurrencies));
       btcCandles = (Array.isArray(data.candles) ? data.candles : []).map(row => ({ date: String(row.date || "").slice(0, 10), open: num(row.open), high: num(row.high), low: num(row.low), close: num(row.close) })).filter(row => row.date && [row.open, row.high, row.low, row.close].every(Number.isFinite)).sort((a, b) => a.date.localeCompare(b.date));
+      const marketSources = Array.isArray(payload.sources) ? payload.sources : [];
+      const btcInputSources = marketSources.filter(source => source.selected === true && Array.isArray(source.fields) && source.fields.some(field => String(field).includes("BTC 价格") || String(field).includes("BTC 日 K")));
+      const btcInputTimes = [currentBtcAsOf, currentBtcCandlesAsOf, ...btcInputSources.map(source => source.updatedAt)].map(value => Date.parse(value || "")).filter(Number.isFinite);
+      marketInputMeta.price = {
+        missing: !Number.isFinite(btcPrice) || btcCandles.length < 2,
+        stale: btcInputSources.some(source => source.status === "stale"),
+        fetchedAt: btcInputTimes.length ? new Date(Math.min(...btcInputTimes)).toISOString() : null,
+        targetSeconds: 15 * 60
+      };
       lastPriceSeries = btcCandles.slice(-30).map(row => row.close);
       if (lastPriceSeries.length) {
         $("price-period").textContent = `30D · GATE.IO${isSnapshotMode ? " SNAPSHOT" : ""}`; $("btc-low").textContent = fmtUsd(Math.min(...lastPriceSeries), 0); $("btc-high").textContent = fmtUsd(Math.max(...lastPriceSeries), 0);
         requestAnimationFrame(() => { drawEtfCombo(); drawEtfRolling(); drawLine($("price-chart"), lastPriceSeries); drawFearGreedKline(); if (defiTrendRows.length) drawDualLine($("defi-chart"), defiTrendRows, { leftFormat: value => `$${value.toFixed(0)}B`, rightFormat: value => `$${Math.round(value / 1000)}k` }); });
       }
-      updateMarketInsight(); updateTodayBrief();
+      updateMarketInsight(); renderTodayMarketState();
     } catch {
-      setState("price", "error", Date.now()); setState("market", "error", Date.now()); updateCompositeMarketTime(); updateTodayBrief();
+      marketInputMeta.price = { ...marketInputMeta.price, missing: true };
+      setState("price", "error", Date.now()); setState("market", "error", Date.now()); updateCompositeMarketTime(); renderTodayMarketState();
     }
   }
 
@@ -890,14 +1055,25 @@
       fearGreedRows = (Array.isArray(data.rows) ? data.rows : []).map(row => ({ date: String(row.date || "").slice(0, 10), value: num(row.value), rawLabel: row.label || "" })).filter(row => row.date && Number.isFinite(row.value)).sort((a, b) => a.date.localeCompare(b.date));
       const latest = data.current && Number.isFinite(num(data.current.value)) ? { date: String(data.current.date || "").slice(0, 10), value: num(data.current.value), rawLabel: data.current.label || "" } : fearGreedRows.at(-1);
       if (!latest) throw new Error("empty sentiment");
-      const targetDate = new Date(new Date(`${latest.date}T00:00:00Z`).getTime() - 7 * 86400000).toISOString().slice(0, 10);
-      const prior = [...fearGreedRows].reverse().find(row => row.date <= targetDate);
+      const dayMs = 86400000, latestTime = Date.parse(`${latest.date}T00:00:00Z`), targetTime = latestTime - 7 * dayMs;
+      const candidate = fearGreedRows.map(row => ({ row, timestamp: Date.parse(`${row.date}T00:00:00Z`) })).filter(item => Number.isFinite(item.timestamp)).reduce((best, item) => !best || Math.abs(item.timestamp - targetTime) < Math.abs(best.timestamp - targetTime) ? item : best, null);
+      const prior = candidate && Math.abs(candidate.timestamp - targetTime) <= 1.5 * dayMs ? candidate.row : null;
       const weeklyChange = prior ? latest.value - prior.value : null;
       currentFearGreed = latest.value; currentFearGreedLabel = fearGreedLabel(latest.value, latest.rawLabel);
+      currentFearGreed7dChange = weeklyChange;
+      currentFearGreedWindowDays = prior ? (latestTime - candidate.timestamp) / dayMs : null;
+      currentFearGreedAsOf = latest.date;
+      const sentimentSource = (Array.isArray(payload.sources) ? payload.sources : []).find(source => source.selected === true) || null;
+      marketInputMeta.sentiment = {
+        missing: false,
+        stale: sentimentSource?.status === "stale",
+        fetchedAt: sentimentSource?.updatedAt || updatedAt,
+        targetSeconds: 60 * 60
+      };
       $("ticker-fng").textContent = `${latest.value} ${currentFearGreedLabel}`; $("stat-fng").textContent = latest.value; $("stat-fng-label").textContent = currentFearGreedLabel; $("gauge-value").textContent = latest.value;
       $("fng-7d").textContent = Number.isFinite(weeklyChange) ? `${weeklyChange > 0 ? "+" : ""}${weeklyChange.toFixed(0)} 点` : "—"; tone($("fng-7d"), weeklyChange);
-      updateMarketInsight(); updateTodayBrief(); requestAnimationFrame(() => { drawFearGreedGauge(latest.value); drawFearGreedKline(); });
-    } catch { setState("sentiment", "error", Date.now()); updateCompositeMarketTime(); updateTodayBrief(); }
+      updateMarketInsight(); renderTodayMarketState(); requestAnimationFrame(() => { drawFearGreedGauge(latest.value); drawFearGreedKline(); });
+    } catch { marketInputMeta.sentiment = { ...marketInputMeta.sentiment, missing: true }; setState("sentiment", "error", Date.now()); updateCompositeMarketTime(); renderTodayMarketState(); }
   }
 
   async function loadOnchainService() {
@@ -933,20 +1109,34 @@
         const numericDate = num(row.date), date = numericDate ? new Date(numericDate * (numericDate > 1e12 ? 1 : 1000)).toISOString().slice(0, 10) : String(row.date || "").slice(0, 10);
         return { date, supply: num(row.supply) };
       }).filter(row => row.date && Number.isFinite(row.supply)).sort((a, b) => a.date.localeCompare(b.date));
+      const stableSource = (Array.isArray(payload.sources) ? payload.sources : []).find(source => source.role === "stablecoin supply history") || null;
+      marketInputMeta.defi = {
+        missing: series.length === 0,
+        stale: stableSource?.status === "stale",
+        fetchedAt: stableSource?.updatedAt || payload.updatedAt || null,
+        targetSeconds: 2 * 60 * 60
+      };
       const latest = series.at(-1), latestTime = latest ? Date.parse(`${latest.date}T00:00:00Z`) : NaN;
       const targetTime = Number.isFinite(latestTime) ? latestTime - 30 * 86400000 : NaN;
       const prior = Number.isFinite(targetTime) ? [...series].reverse().find(row => Date.parse(`${row.date}T00:00:00Z`) <= targetTime) : null;
       const priorTime = prior ? Date.parse(`${prior.date}T00:00:00Z`) : NaN;
       const windowDays = Number.isFinite(latestTime) && Number.isFinite(priorTime) ? Math.round((latestTime - priorTime) / 86400000) : null;
       const supply = latest?.supply, oldSupply = prior?.supply, change = oldSupply ? (supply / oldSupply - 1) * 100 : null;
+      currentStableSupply = supply;
+      currentStable30dChange = change;
+      currentStableWindowDays = windowDays;
+      currentStableAsOf = latest?.date || null;
       if (Number.isFinite(supply)) $("stable-supply").textContent = `$${compact(supply)}`;
-      $("stable-change").textContent = signed(change); tone($("stable-change"), change);
-      $("defi-insight").querySelector("span").textContent = Number.isFinite(change) && Number.isFinite(windowDays)
-        ? `过去 ${windowDays} 天稳定币供给${change >= 0 ? "增加" : "减少"} ${Math.abs(change).toFixed(2)}%，链上美元流动性${change >= 0 ? "正在扩张" : "正在收缩"}。`
-        : series.length ? "稳定币历史窗口不足 30 天，暂不推断月度流动性方向。" : "稳定币供给变化暂不可计算。";
+      const liquidityReading = classifyStablecoinChange(change);
+      const completeWindow = Number.isFinite(windowDays) && windowDays >= 28 && windowDays <= 35;
+      $("stable-change").textContent = signed(change); tone($("stable-change"), completeWindow ? liquidityReading.direction : 0);
+      $("defi-insight").querySelector("span").textContent = Number.isFinite(change) && completeWindow
+        ? `过去 ${windowDays} 天${liquidityReading.text}`
+        : series.length ? "稳定币历史窗口不在 28–35 天内，暂不推断月度流动性方向。" : "稳定币供给变化暂不可计算。";
       defiTrendRows = series.map(row => ({ label: row.date, left: row.supply / 1e9, right: null })).slice(-740);
       requestAnimationFrame(() => drawDualLine($("defi-chart"), defiTrendRows, { leftFormat: value => `$${value.toFixed(0)}B`, rightFormat: value => `$${Math.round(value / 1000)}k` }));
-    } catch { setState("defi", "error", Date.now()); $("defi-insight").querySelector("span").textContent = "DeFi 数据服务当前不可达，暂不判断链上流动性方向。"; }
+      renderTodayMarketState();
+    } catch { marketInputMeta.defi = { ...marketInputMeta.defi, missing: true }; setState("defi", "error", Date.now()); $("defi-insight").querySelector("span").textContent = "DeFi 数据服务当前不可达，暂不判断链上流动性方向。"; renderTodayMarketState(); }
   }
 
   const RANGE_DAYS = { "7D": 7, "30D": 30, "90D": 90, "6M": 183, "1Y": 366, "2Y": 732 };
@@ -1075,15 +1265,18 @@
     const sources = staticData?.sources || {};
     const automation = latestHealthPayload?.data?.automation || null;
     const now = Date.now();
-    const makeRow = ({ id, label, asOf, providers, reviewDays }) => {
+    const makeRow = ({ id, label, asOf, providers, reviewDays, reviewBusinessDays = null }) => {
       const timestamp = dateValue(asOf), ageSeconds = Number.isFinite(timestamp) ? Math.max(0, Math.round((now - timestamp) / 1000)) : null;
-      const review = !Number.isFinite(timestamp) || ageSeconds > reviewDays * 86400;
+      const missingDate = !Number.isFinite(timestamp);
+      const businessAge = Number.isFinite(reviewBusinessDays) ? completedUtcWeekdaysSince(asOf, now) : null;
+      const stale = !missingDate && (Number.isFinite(reviewBusinessDays) ? businessAge > reviewBusinessDays : ageSeconds > reviewDays * 86400);
+      const targetSeconds = Number.isFinite(reviewBusinessDays) ? 6 * 86400 : reviewDays * 86400;
       const update = automation?.modules?.[id] || null;
       const updateFailed = update?.status === "failed";
       return {
-        id, label, kind: "static", status: review || updateFailed ? "review" : "static", dataAsOf: asOf || null,
-        ageSeconds, targetSeconds: reviewDays * 86400, overdue: false, fallbackActive: false,
-        reasonCodes: [...(review ? ["needs_review"] : []), ...(updateFailed ? ["last_update_failed"] : [])], missingFields: [],
+        id, label, kind: "static", status: missingDate ? "unavailable" : updateFailed ? "review" : "static", dataAsOf: asOf || null,
+        ageSeconds, targetSeconds, overdue: stale, fallbackActive: false,
+        reasonCodes: [...(missingDate ? ["missing_date"] : []), ...(stale ? ["needs_review"] : []), ...(updateFailed ? ["last_update_failed"] : [])], missingFields: missingDate ? ["快照截止日"] : [],
         updateStatus: update?.status || null,
         lastAttemptAt: update?.lastAttemptAt || null,
         lastSuccessAt: update?.lastSuccessAt || null,
@@ -1094,23 +1287,32 @@
       };
     };
     return [
-      makeRow({ id: "etf", label: "ETF 机构资金", asOf: sources.etfFlows?.asOf, providers: [sources.etfFlows, sources.ethEtfFlows], reviewDays: 4 }),
-      makeRow({ id: "ibit", label: "IBIT 期权", asOf: sources.ibitOptions?.asOf || staticData?.ibitOptions?.asOf, providers: [sources.ibitOptions], reviewDays: 4 }),
+      makeRow({ id: "etf", label: "ETF 机构资金", asOf: sources.etfFlows?.asOf, providers: [sources.etfFlows, sources.ethEtfFlows], reviewDays: 6, reviewBusinessDays: 2 }),
+      makeRow({ id: "ibit", label: "IBIT 期权", asOf: sources.ibitOptions?.asOf || staticData?.ibitOptions?.asOf, providers: [sources.ibitOptions], reviewDays: 6, reviewBusinessDays: 2 }),
       makeRow({ id: "seasonality", label: "历史季节性", asOf: staticData?.seasonality?.asOf || staticData?.asOf, providers: [{ provider: "Gate.io", mode: "BTC/USDT 日 K 重建", url: sources.btcMonthly?.url }], reviewDays: 2 })
     ];
   }
 
+  function effectiveHealth(module) {
+    if (!module || module.status === "unavailable") return "unavailable";
+    if (moduleIsOverdue(module)) return "stale";
+    if (["partial", "review"].includes(module.status)) return "degraded";
+    return "healthy";
+  }
+
   function healthStatus(module) {
-    if (moduleIsOverdue(module)) return { key: "overdue", label: isSnapshotMode && module.kind === "dynamic" ? "STALE SNAPSHOT" : "OVERDUE" };
-    if (module.status === "live") return { key: "live", label: isSnapshotMode && module.kind === "dynamic" ? "SNAPSHOT" : "LIVE" };
-    if (module.status === "partial") return { key: "partial", label: isSnapshotMode && module.kind === "dynamic" ? "PARTIAL SNAPSHOT" : "PARTIAL" };
-    if (module.status === "static") return { key: "live", label: "STATIC" };
-    if (module.status === "review") return { key: "review", label: "需检查" };
+    const health = effectiveHealth(module);
+    if (health === "stale") {
+      const wholeSnapshotStale = isSnapshotMode && module.kind === "dynamic" && module?.overdue !== true && isSnapshotStale();
+      return { key: "overdue", label: wholeSnapshotStale ? "STALE SNAPSHOT" : "SOURCE OVERDUE" };
+    }
+    if (health === "degraded") return { key: module.status === "review" ? "review" : "partial", label: module.status === "review" ? "需检查" : isSnapshotMode && module.kind === "dynamic" ? "PARTIAL SNAPSHOT" : "PARTIAL" };
+    if (health === "healthy") return { key: "live", label: module.status === "static" ? "STATIC" : isSnapshotMode && module.kind === "dynamic" ? "SNAPSHOT" : "LIVE" };
     return { key: "error", label: "UNAVAILABLE" };
   }
 
   function sourceStatusLabel(status) {
-    return ({ live: isSnapshotMode ? "构建时抓取" : "本次抓取", cached: isSnapshotMode ? "构建时缓存" : "服务端缓存", stale: "过期缓存", unavailable: "不可用", static: "静态快照" })[status] || status || "未知";
+    return ({ live: isSnapshotMode ? "构建时抓取" : "本次抓取", cached: "新鲜缓存（不计入异常）", stale: "过期缓存", unavailable: "不可用", static: "静态快照" })[status] || status || "未知";
   }
 
   function renderHealthRows(target, modules) {
@@ -1128,7 +1330,8 @@
         module.kind === "static" && module.scheduleEnabled ? (isSnapshotMode ? `${module.scheduleTime || "每 2 小时"}由 GitHub Actions 自动刷新` : `每日 ${module.scheduleTime || "设定时间"} 自动更新`) : null
       ].filter(Boolean).join(" · ");
       const sources = (module.sources || []).map(source => `<div class="health-source"><b>${esc(source.provider || "未知来源")}${source.selected ? " · 使用中" : ""}</b><span>${esc(source.role || (source.fields || []).join("、") || "数据源")}</span><span>${esc(sourceStatusLabel(source.status))}${source.fetchedAt ? ` · ${esc(formatAge((Date.now() - Date.parse(source.fetchedAt)) / 1000))}` : ""}</span></div>`).join("");
-      const missing = module.missingFields?.length ? `<div class="health-source"><b>缺失字段</b><span>${esc(module.missingFields.join("、"))}</span><span>因此降级</span></div>` : "";
+      const missingConsequence = effectiveHealth(module) === "unavailable" ? "因此不可用" : effectiveHealth(module) === "stale" ? "且数据已过期" : "因此降级";
+      const missing = module.missingFields?.length ? `<div class="health-source"><b>缺失字段</b><span>${esc(module.missingFields.join("、"))}</span><span>${missingConsequence}</span></div>` : "";
       return `<details class="health-row" ${abnormal ? "open" : ""}><summary><span class="health-row-title"><b>${esc(module.label)}</b><small>${esc(detail || "状态与来源可展开查看")}</small></span><span class="health-pill ${state.key}">${state.label}</span><span class="health-age">${module.kind === "static" ? `截止 ${esc(module.dataAsOf || "—")}` : `抓取 ${esc(formatAge(displayAge))}`}</span></summary><div class="health-sources">${missing}${sources || '<div class="health-source"><span>没有返回来源明细</span></div>'}</div></details>`;
     }).join("");
   }
@@ -1151,18 +1354,26 @@
     renderHealthRows($("health-modules"), dynamic);
     renderHealthRows($("health-static"), statics);
     const all = [...dynamic, ...statics];
-    const healthy = all.filter(module => ["live", "static"].includes(module.status) && !moduleIsOverdue(module)).length;
-    const partial = all.filter(module => ["partial", "review"].includes(module.status)).length;
-    const cached = payload?._browserCached ? dynamic.length : dynamic.filter(module => module.sources?.some(source => source.status === "cached" || source.status === "stale")).length;
-    const missingDynamic = payload ? 0 : 5;
-    const errors = all.filter(module => module.status === "unavailable" || moduleIsOverdue(module)).length + missingDynamic;
-    $("health-live-count").textContent = String(healthy); $("health-partial-count").textContent = String(partial); $("health-cached-count").textContent = String(cached); $("health-error-count").textContent = String(errors);
+    const expectedDynamic = new Set(["market", "sentiment", "onchain", "defi", "gamma"]);
+    dynamic.forEach(module => expectedDynamic.delete(module.id));
+    const missingDynamic = expectedDynamic.size;
+    const buckets = { healthy: 0, degraded: 0, stale: 0, unavailable: missingDynamic };
+    all.forEach(module => { buckets[effectiveHealth(module)] += 1; });
+    const staleCache = dynamic.filter(module => module.sources?.some(source => source.selected === true && source.status === "stale")).length;
+    const freshCache = dynamic.filter(module => module.sources?.some(source => source.selected === true && source.status === "cached") && !module.sources?.some(source => source.selected === true && source.status === "stale")).length;
+    const cacheBacked = freshCache + staleCache;
+    $("health-live-count").textContent = String(buckets.healthy);
+    $("health-partial-count").textContent = String(buckets.degraded);
+    $("health-stale-count").textContent = String(buckets.stale);
+    $("health-error-count").textContent = String(buckets.unavailable);
     const fallbacks = dynamic.filter(module => module.fallbackActive).length;
     const totalModules = all.length + missingDynamic;
-    const insight = missingDynamic ? "动态健康接口当前不可达；静态快照仍可核对，但不能据此判断实时数据正常。"
-      : errors ? `${totalModules} 个数据模块中有 ${errors} 个不可用或超过抓取窗口，请先查看展开项。`
-      : partial ? `${totalModules} 个数据模块中有 ${partial} 个部分可用或需要检查${fallbacks ? `，${fallbacks} 个正在使用备用源` : ""}。`
-      : `${totalModules} 个数据模块状态正常${cached ? `；${cached} 个复用了最近成功缓存` : ""}。`;
+    const primary = `${totalModules} 个模块：${buckets.healthy} 个正常${buckets.degraded ? `，${buckets.degraded} 个部分可用` : ""}${buckets.stale ? `，${buckets.stale} 个数据过期` : ""}${buckets.unavailable ? `，${buckets.unavailable} 个不可用` : ""}。`;
+    const deliveryParts = [freshCache ? `${freshCache} 个使用新鲜缓存` : null, staleCache ? `${staleCache} 个含过期缓存` : null].filter(Boolean);
+    const delivery = cacheBacked ? `其中 ${deliveryParts.join("，")}；缓存是取数方式，不重复计入主状态。` : "本次实际供数未使用缓存降级。";
+    const browserDelivery = payload?._browserCached ? "健康状态文件本身来自浏览器缓存。" : "";
+    const fallbackText = fallbacks ? `另有 ${fallbacks} 个模块正在使用备用源或最后成功值。` : "";
+    const insight = missingDynamic ? `动态健康记录缺少 ${missingDynamic} 个预期模块。${primary}${delivery}${browserDelivery}` : `${primary}${delivery}${browserDelivery}${fallbackText}`;
     $("health-insight").querySelector("span").textContent = insight;
     const checkedAt = payload?.data?.checkedAt || payload?.updatedAt;
     $("health-checked").textContent = checkedAt ? `${payload?._browserCached ? "浏览器缓存检查" : isSnapshotMode ? "快照生成于" : "检查于"} ${shortUpdatedAt(checkedAt)}` : "动态健康接口暂不可用";
@@ -1711,7 +1922,7 @@
   function setupMobileCarousels() {
     if (!window.matchMedia) return;
     const mobileQuery = window.matchMedia("(max-width: 620px)");
-    const regions = document.querySelectorAll(".mobile-snap-cards, .etf-rolling-metrics, .chart-summary, .gamma-summary");
+    const regions = document.querySelectorAll(".mobile-snap-cards, .market-state-grid, .etf-rolling-metrics, .chart-summary, .gamma-summary");
     regions.forEach(region => {
       region.classList.add("mobile-snap-region");
       const syncMode = () => {
@@ -1813,6 +2024,30 @@
     finishStatus();
   }
   let resizeTimer, viewportWidth = document.documentElement.clientWidth;
+  let backgroundRefreshInFlight = false, lastBackgroundRefreshAt = Date.now();
+  async function refreshLiveDataInBackground() {
+    if (isSnapshotMode || backgroundRefreshInFlight) return;
+    backgroundRefreshInFlight = true;
+    lastBackgroundRefreshAt = Date.now();
+    try {
+      await Promise.allSettled([loadMarketService(), loadSentimentService(), loadOnchainService(), loadDefiService(), loadGamma(), loadHealth()]);
+      refreshMarketSectionState();
+      finishStatus();
+      const failed = ["market", "sentiment", "onchain", "defi", "gamma", "health"].some(group => sourceStates[group] === "error");
+      if (failed) lastBackgroundRefreshAt = Date.now() - 10 * 60 * 1000;
+    } finally {
+      backgroundRefreshInFlight = false;
+      renderTodayMarketState();
+      if (latestHealthPayload) renderHealth(latestHealthPayload);
+    }
+  }
+  setInterval(() => {
+    if (!isSnapshotMode && Date.now() - lastBackgroundRefreshAt >= 15 * 60 * 1000) void refreshLiveDataInBackground();
+    else {
+      renderTodayMarketState();
+      if (latestHealthPayload) renderHealth(latestHealthPayload);
+    }
+  }, 60_000);
   window.addEventListener("resize", () => {
     const nextWidth = document.documentElement.clientWidth;
     if (nextWidth === viewportWidth) return;

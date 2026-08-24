@@ -1,31 +1,21 @@
 import { createServer } from 'node:http';
-import { readFile, stat } from 'node:fs/promises';
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { fetchDeribitGamma, isUsableGammaPayload } from './scripts/lib/deribit-options.mjs';
 
 const root = fileURLToPath(new URL('.', import.meta.url));
 const mime = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8' };
 
 const GAMMA_CACHE_MS = 5 * 60 * 1000;
-const BYBIT_TIMEOUT_MS = 4_000;
+const GAMMA_LAST_GOOD_MS = 24 * 60 * 60 * 1000;
+const GAMMA_LAST_GOOD_FILE = join(root, '.runtime', 'pages-cache', 'gamma-last-good.json');
 const DATA_TIMEOUT_MS = 5_000;
 const STALE_TTL_MULTIPLIER = 12;
-const MIN_COVERAGE = 0.7;
-const MIN_DAYS_TO_EXPIRY = 6;
-const STRIKE_RANGE_RATIO = 0.25;
-const CONTRACT_MULTIPLIER = 1;
-const BYBIT_HOSTS = [
-  'https://api.bybit.nl',
-  'https://api.bybit.kz',
-  'https://api.bybit.com',
-];
-const MONTHS = new Map([
-  ['JAN', 0], ['FEB', 1], ['MAR', 2], ['APR', 3], ['MAY', 4], ['JUN', 5],
-  ['JUL', 6], ['AUG', 7], ['SEP', 8], ['OCT', 9], ['NOV', 10], ['DEC', 11],
-]);
 
 let gammaCache = null;
 let gammaPending = null;
+let gammaLastGood = null;
 const serverStartedAt = Date.now();
 const resourceCache = new Map();
 const resourcePending = new Map();
@@ -65,51 +55,7 @@ function numberOrNull(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function median(values) {
-  if (!values.length) return null;
-  const ordered = [...values].sort((a, b) => a - b);
-  const middle = Math.floor(ordered.length / 2);
-  return ordered.length % 2
-    ? ordered[middle]
-    : (ordered[middle - 1] + ordered[middle]) / 2;
-}
-
-function isoDate(timestamp) {
-  return new Date(timestamp).toISOString().slice(0, 10);
-}
-
-function parseOptionSymbol(value) {
-  const symbol = String(value ?? '').trim().toUpperCase();
-  const match = symbol.match(
-    /^BTC(?:USDT|USDC)?-(\d{1,2})(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)(\d{2}|\d{4})-(\d+(?:\.\d+)?)-([CP])(?:-(USDT|USDC))?$/,
-  );
-  if (!match) return null;
-
-  const day = Number(match[1]);
-  const month = MONTHS.get(match[2]);
-  const rawYear = Number(match[3]);
-  const year = match[3].length === 2 ? 2000 + rawYear : rawYear;
-  const strike = Number(match[4]);
-  const expiryTimestamp = Date.UTC(year, month, day, 8);
-  const expiryDate = new Date(expiryTimestamp);
-  if (
-    !Number.isFinite(strike) || strike <= 0
-    || expiryDate.getUTCFullYear() !== year
-    || expiryDate.getUTCMonth() !== month
-    || expiryDate.getUTCDate() !== day
-  ) return null;
-
-  return {
-    symbol,
-    expiryTimestamp,
-    expiry: isoDate(expiryTimestamp),
-    strike,
-    direction: match[5] === 'C' ? 'call' : 'put',
-    settlement: match[6] ?? (symbol.startsWith('BTCUSDT-') ? 'USDT' : 'USDC'),
-  };
-}
-
-async function fetchJson(url, timeout = BYBIT_TIMEOUT_MS) {
+async function fetchJson(url, timeout = DATA_TIMEOUT_MS) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeout);
   try {
@@ -192,12 +138,18 @@ function sourceInfo(provider, role, url, result) {
 
 function moduleEnvelope(data, resources, { hasData, complete }) {
   const available = resources.filter((resource) => resource?.result?.available);
-  const hasStale = available.some((resource) => resource.result.state === 'stale');
-  const updatedAtMs = Math.max(0, ...available.map((resource) => resource.result.fetchedAt ?? 0));
+  const selectedAvailable = resources.filter((resource) => resource?.selected === true && resource?.result?.available);
+  const effectiveResources = selectedAvailable.length ? selectedAvailable : available;
+  const hasStale = effectiveResources.some((resource) => resource.result.state === 'stale');
+  const updatedAtMs = Math.max(0, ...effectiveResources.map((resource) => resource.result.fetchedAt ?? 0));
   return {
     status: !hasData ? 'unavailable' : complete && !hasStale ? 'live' : 'partial',
     updatedAt: updatedAtMs ? new Date(updatedAtMs).toISOString() : null,
-    sources: resources.map(({ provider, role, url, result }) => sourceInfo(provider, role, url, result)),
+    sources: resources.map(({ provider, role, url, result, selected = false, fields = [] }) => ({
+      ...sourceInfo(provider, role, url, result),
+      selected: selected === true && result?.available === true,
+      fields,
+    })),
     data,
   };
 }
@@ -261,15 +213,25 @@ async function marketDataResult() {
   const candles = normalizeGateCandles(candlesResult.value);
   const bitcoinUsesGate = numberOrNull(gateBtc?.last) !== null;
   const ethereumUsesGate = numberOrNull(gateEth?.last) !== null;
+  const btcPriceProvider = bitcoinUsesGate ? 'Gate.io' : assets.bitcoin.usd !== null ? 'CoinGecko fallback' : null;
+  const btcPriceResult = bitcoinUsesGate ? gateBtcResult : assets.bitcoin.usd !== null ? pricesResult : null;
+  const btcPriceAsOf = btcPriceResult?.fetchedAt ? new Date(btcPriceResult.fetchedAt).toISOString() : null;
+  const btcCandlesAsOf = candlesResult?.fetchedAt && candles.length ? new Date(candlesResult.fetchedAt).toISOString() : null;
   const priceProvider = bitcoinUsesGate && ethereumUsesGate
     ? 'Gate.io'
     : bitcoinUsesGate || ethereumUsesGate ? 'Gate.io / CoinGecko fallback' : 'CoinGecko fallback';
+  const coinGeckoPriceFields = [];
+  if (!bitcoinUsesGate && assets.bitcoin.usd !== null) coinGeckoPriceFields.push('BTC 价格与 24h 变化');
+  if (!ethereumUsesGate && assets.ethereum.usd !== null) coinGeckoPriceFields.push('ETH 价格与 24h 变化');
+  if (assetIds.slice(2).some((id) => assets[id].usd !== null)) coinGeckoPriceFields.push('其他币种价格');
+  if (assetIds.some((id) => assets[id].usdMarketCap !== null)) coinGeckoPriceFields.push('币种市值');
+  const globalFields = Object.entries(global).filter(([, value]) => value !== null).map(([field]) => field);
   const resources = [
-    { provider: 'Gate.io', role: 'BTC/USDT ticker', url: DATA_ENDPOINTS.gateBtcTicker, result: gateBtcResult },
-    { provider: 'Gate.io', role: 'ETH/USDT ticker', url: DATA_ENDPOINTS.gateEthTicker, result: gateEthResult },
-    { provider: 'Gate.io', role: 'BTC/USDT daily candles', url: DATA_ENDPOINTS.gateBtcCandles, result: candlesResult },
-    { provider: 'CoinGecko', role: 'asset metadata and price fallback', url: DATA_ENDPOINTS.coinGeckoPrices, result: pricesResult },
-    { provider: 'CoinGecko', role: 'global crypto market totals', url: DATA_ENDPOINTS.coinGeckoGlobal, result: globalResult },
+    { provider: 'Gate.io', role: 'BTC/USDT ticker', url: DATA_ENDPOINTS.gateBtcTicker, result: gateBtcResult, selected: bitcoinUsesGate, fields: bitcoinUsesGate ? ['BTC 价格', 'BTC 24h 变化'] : [] },
+    { provider: 'Gate.io', role: 'ETH/USDT ticker', url: DATA_ENDPOINTS.gateEthTicker, result: gateEthResult, selected: ethereumUsesGate, fields: ethereumUsesGate ? ['ETH 价格', 'ETH 24h 变化'] : [] },
+    { provider: 'Gate.io', role: 'BTC/USDT daily candles', url: DATA_ENDPOINTS.gateBtcCandles, result: candlesResult, selected: candles.length > 0, fields: candles.length ? ['BTC 日 K'] : [] },
+    { provider: 'CoinGecko', role: 'asset metadata and price fallback', url: DATA_ENDPOINTS.coinGeckoPrices, result: pricesResult, selected: coinGeckoPriceFields.length > 0, fields: coinGeckoPriceFields },
+    { provider: 'CoinGecko', role: 'global crypto market totals', url: DATA_ENDPOINTS.coinGeckoGlobal, result: globalResult, selected: globalFields.length > 0, fields: globalFields },
   ];
   const hasData = assets.bitcoin.usd !== null || candles.length > 0 || global.totalMarketCapUsd !== null;
   const complete = assets.bitcoin.usd !== null
@@ -277,7 +239,7 @@ async function marketDataResult() {
     && assetIds.every((id) => assets[id].usd !== null)
     && candles.length > 0
     && Object.values(global).every((value) => value !== null);
-  return moduleEnvelope({ assets, global, candles, priceProvider }, resources, { hasData, complete });
+  return moduleEnvelope({ assets, global, candles, priceProvider, btcPriceProvider, btcPriceAsOf, btcCandlesAsOf }, resources, { hasData, complete });
 }
 
 async function sentimentDataResult() {
@@ -296,6 +258,8 @@ async function sentimentDataResult() {
     role: 'Crypto Fear & Greed Index',
     url: DATA_ENDPOINTS.fearGreed,
     result,
+    selected: current !== null,
+    fields: current !== null ? ['当前恐贪值', '历史恐贪序列'] : [],
   }];
   return moduleEnvelope({ rows, current }, resources, {
     hasData: current !== null,
@@ -385,6 +349,18 @@ async function onchainDataResult() {
 
   const data = { height, feeFast, feeHour, mempoolCount, mempoolSize, mempoolUnit, sourceByField };
   const values = [height, feeFast, feeHour, mempoolCount, mempoolSize];
+  const fieldsByRole = {
+    'fee estimates': ['feeFast', 'feeHour'],
+    'mempool size': ['mempoolCount', 'mempoolSize'],
+    'chain height': ['height'],
+    'fee estimates fallback': ['feeFast', 'feeHour'],
+    'chain height fallback': ['height'],
+    'height and mempool fallback': ['height', 'mempoolCount', 'mempoolSize'],
+  };
+  resources.forEach((resource) => {
+    resource.fields = (fieldsByRole[resource.role] || []).filter((field) => sourceByField[field] === resource.provider);
+    resource.selected = resource.fields.length > 0;
+  });
   return moduleEnvelope(data, resources, {
     hasData: values.some((value) => value !== null),
     complete: values.every((value) => value !== null) && mempoolUnit !== null,
@@ -419,8 +395,8 @@ async function defiDataResult() {
     .map(([date, supply]) => ({ date, supply }))
     .sort((a, b) => a.date.localeCompare(b.date));
   const resources = [
-    { provider: 'DefiLlama', role: 'chain TVL', url: DATA_ENDPOINTS.defiChains, result: chainsResult },
-    { provider: 'DefiLlama', role: 'stablecoin supply history', url: DATA_ENDPOINTS.stablecoinHistory, result: stablecoinsResult },
+    { provider: 'DefiLlama', role: 'chain TVL', url: DATA_ENDPOINTS.defiChains, result: chainsResult, selected: totalTvl !== null, fields: totalTvl !== null ? ['全链 TVL', '头部公链 TVL'] : [] },
+    { provider: 'DefiLlama', role: 'stablecoin supply history', url: DATA_ENDPOINTS.stablecoinHistory, result: stablecoinsResult, selected: stableSeries.length > 0, fields: stableSeries.length ? ['稳定币供给历史'] : [] },
   ];
   return moduleEnvelope({ totalTvl, topChain, stableSeries }, resources, {
     hasData: totalTvl !== null || stableSeries.length > 0,
@@ -428,163 +404,72 @@ async function defiDataResult() {
   });
 }
 
-async function fetchBybitOptionTickers() {
-  const failures = [];
-  for (const host of BYBIT_HOSTS) {
-    const url = `${host}/v5/market/tickers?category=option&baseCoin=BTC`;
-    try {
-      const payload = await fetchJson(url);
-      const apiTime = numberOrNull(payload?.time);
-      const rows = payload?.result?.list;
-      if (payload?.retCode !== 0 || !Array.isArray(rows) || rows.length === 0 || apiTime === null) {
-        throw new Error(`Invalid Bybit response (${payload?.retCode ?? 'unknown'})`);
-      }
-      return { host, apiTime, rows };
-    } catch (error) {
-      failures.push(`${host}: ${error?.name === 'AbortError' ? 'timeout' : error?.message ?? 'request failed'}`);
-    }
+function gammaPayloadTime(payload) {
+  const timestamp = Date.parse(payload?.lastSuccessAt || payload?.asOf || '');
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+async function readGammaLastGood() {
+  if (isUsableGammaPayload(gammaLastGood)) return gammaLastGood;
+  try {
+    const payload = JSON.parse(await readFile(GAMMA_LAST_GOOD_FILE, 'utf8'));
+    if (!isUsableGammaPayload(payload)) return null;
+    gammaLastGood = payload;
+    return payload;
+  } catch {
+    return null;
   }
-  throw new Error(`Bybit option tickers unavailable. ${failures.join('; ')}`);
 }
 
-function selectExpiry(parsedRows, apiTime) {
-  const threshold = apiTime + MIN_DAYS_TO_EXPIRY * 24 * 60 * 60 * 1000;
-  const expiries = [...new Set(parsedRows
-    .map((row) => row.metadata.expiryTimestamp)
-    .filter((timestamp) => timestamp >= threshold))]
-    .sort((a, b) => a - b);
-  return expiries[0] ?? null;
+async function writeGammaLastGood(payload) {
+  if (!isUsableGammaPayload(payload)) return;
+  const clean = { ...payload, status: payload.status === 'partial' ? 'partial' : 'live', stale: false, lastAttemptAt: payload.asOf };
+  gammaLastGood = clean;
+  await mkdir(join(root, '.runtime', 'pages-cache'), { recursive: true });
+  await writeFile(GAMMA_LAST_GOOD_FILE, `${JSON.stringify(clean, null, 2)}\n`, 'utf8');
 }
 
-function aggregateGamma(metrics, spot) {
-  const byStrike = new Map();
-  let callGex = 0;
-  let putGex = 0;
-
-  for (const metric of metrics) {
-    const unsignedGex = metric.gamma * metric.openInterest * CONTRACT_MULTIPLIER * spot ** 2 * 0.01;
-    const signedGex = metric.metadata.direction === 'call' ? unsignedGex : -unsignedGex;
-    const row = byStrike.get(metric.metadata.strike) ?? {
-      strike: metric.metadata.strike,
-      callGex: 0,
-      putGex: 0,
-      netGex: 0,
-      callOi: 0,
-      putOi: 0,
-      contracts: 0,
-    };
-
-    if (metric.metadata.direction === 'call') {
-      row.callGex += signedGex;
-      row.callOi += metric.openInterest;
-      callGex += signedGex;
-    } else {
-      row.putGex += signedGex;
-      row.putOi += metric.openInterest;
-      putGex += signedGex;
-    }
-    row.netGex += signedGex;
-    row.contracts += 1;
-    byStrike.set(metric.metadata.strike, row);
-  }
-
-  return {
-    byStrike: [...byStrike.values()].sort((a, b) => a.strike - b.strike),
-    callGex,
-    putGex,
-    netGex: callGex + putGex,
-    grossGex: callGex + Math.abs(putGex),
-  };
+function gammaErrorCode(error) {
+  if (error?.name === 'TimeoutError' || error?.name === 'AbortError') return 'DERIBIT_TIMEOUT';
+  const message = String(error?.message || '');
+  if (/HTTP 429/.test(message)) return 'DERIBIT_RATE_LIMIT';
+  if (/HTTP \d+/.test(message)) return 'DERIBIT_HTTP_ERROR';
+  if (/覆盖不足/.test(message)) return 'DERIBIT_LOW_COVERAGE';
+  if (/结构无效|无法匹配/.test(message)) return 'DERIBIT_SCHEMA_ERROR';
+  return 'DERIBIT_UNAVAILABLE';
 }
 
-async function computeGamma() {
-  const { host, apiTime, rows } = await fetchBybitOptionTickers();
-  const parsedRows = rows
-    .map((row) => ({ row, metadata: parseOptionSymbol(row?.symbol) }))
-    .filter((item) => item.metadata !== null);
-  if (!parsedRows.length) throw new Error('Bybit returned no recognizable BTC option symbols.');
-
-  const expiryTimestamp = selectExpiry(parsedRows, apiTime);
-  if (expiryTimestamp === null) throw new Error('No Bybit BTC option expiry at least six days away is available.');
-
-  const expiryRows = parsedRows.filter((item) => item.metadata.expiryTimestamp === expiryTimestamp);
-  const spot = median(expiryRows
-    .map(({ row }) => numberOrNull(row?.underlyingPrice) ?? numberOrNull(row?.indexPrice))
-    .filter((value) => value !== null && value > 0));
-  if (spot === null || spot <= 0) throw new Error('Bybit BTC underlying price is unavailable.');
-
-  const minimumStrike = spot * (1 - STRIKE_RANGE_RATIO);
-  const maximumStrike = spot * (1 + STRIKE_RANGE_RATIO);
-  const requestedRows = expiryRows.filter(({ metadata }) => (
-    metadata.strike >= minimumStrike && metadata.strike <= maximumStrike
-  ));
-  if (!requestedRows.length) throw new Error('No Bybit BTC options are available in the requested strike range.');
-
-  const metrics = requestedRows.flatMap(({ row, metadata }) => {
-    const gamma = numberOrNull(row?.gamma);
-    const openInterest = numberOrNull(row?.openInterest);
-    if (gamma === null || gamma < 0 || openInterest === null || openInterest < 0) return [];
-    return [{ metadata, gamma, openInterest }];
-  });
-  const coverage = metrics.length / requestedRows.length;
-  const coverageDetail = {
-    ratio: coverage,
-    validContracts: metrics.length,
-    requestedContracts: requestedRows.length,
-    basis: '具有有效 Gamma 与 OI 的合约数 / 到期日及执行价范围内的合约数',
-  };
-  if (coverage < MIN_COVERAGE) {
-    return {
-      statusCode: 503,
-      payload: {
-        status: 'unavailable',
-        message: `Bybit 有效期权数据覆盖率仅 ${(coverage * 100).toFixed(1)}%，低于 70%；未输出 GEX。`,
-        symbol: 'BTC',
-        venue: 'Bybit',
-        expiry: isoDate(expiryTimestamp),
-        coverage,
-        coverageDetail,
-      },
-    };
-  }
-
-  const aggregate = aggregateGamma(metrics, spot);
-  return {
-    statusCode: 200,
-    payload: {
-      status: 'live',
-      symbol: 'BTC',
-      venue: 'Bybit',
-      source: 'Bybit V5 官方公共期权行情',
-      sourceHost: host,
-      asOf: new Date(apiTime).toISOString(),
-      spot,
-      expiry: isoDate(expiryTimestamp),
-      strikeRange: { minimum: minimumStrike, maximum: maximumStrike },
-      formula: 'gamma × OI(BTC) × contract multiplier(1) × spot² × 0.01',
-      unit: 'USD per 1% BTC move',
-      signConvention: 'Call 为正、Put 为负；OI 代理口径不代表交易商真实净持仓。',
-      contractMultiplier: CONTRACT_MULTIPLIER,
-      coverage,
-      coverageDetail,
-      multiplierFallbackContracts: 0,
-      byStrike: aggregate.byStrike,
-      callGex: aggregate.callGex,
-      putGex: aggregate.putGex,
-      netGex: aggregate.netGex,
-      grossGex: aggregate.grossGex,
-    },
-  };
-}
-
-function unavailableResult() {
+function unavailableResult(error = null) {
   return {
     statusCode: 503,
     payload: {
       status: 'unavailable',
-      message: 'Bybit 官方免费期权接口暂不可达；未生成 Gamma 敞口数据。',
+      message: 'Deribit 官方公开期权接口暂不可达，且没有 24 小时内可用的最后成功快照。',
       symbol: 'BTC',
-      venue: 'Bybit',
+      venue: 'Deribit',
+      lastAttemptAt: new Date().toISOString(),
+      errorCode: gammaErrorCode(error),
+    },
+  };
+}
+
+async function fallbackGammaResult(error) {
+  const lastGood = await readGammaLastGood();
+  const lastGoodAt = gammaPayloadTime(lastGood);
+  const ageMs = Number.isFinite(lastGoodAt) ? Date.now() - lastGoodAt : Infinity;
+  if (!isUsableGammaPayload(lastGood) || ageMs > GAMMA_LAST_GOOD_MS) return unavailableResult(error);
+  const lastAttemptAt = new Date().toISOString();
+  return {
+    statusCode: 200,
+    payload: {
+      ...lastGood,
+      status: 'partial',
+      stale: true,
+      delivery: 'stale_cache',
+      lastSuccessAt: lastGood.lastSuccessAt || lastGood.asOf,
+      lastAttemptAt,
+      errorCode: gammaErrorCode(error),
+      message: `本次 Deribit 请求失败，沿用 ${Math.max(1, Math.round(ageMs / 60000))} 分钟前的最后成功快照；超过 24 小时将停止展示。`,
     },
   };
 }
@@ -597,9 +482,11 @@ async function gammaResult() {
   gammaPending = (async () => {
     let result;
     try {
-      result = await computeGamma();
-    } catch {
-      result = unavailableResult();
+      const payload = await fetchDeribitGamma({ now });
+      await writeGammaLastGood(payload);
+      result = { statusCode: 200, payload };
+    } catch (error) {
+      result = await fallbackGammaResult(error);
     }
     gammaCache = { ...result, expiresAt: Date.now() + GAMMA_CACHE_MS };
     return { ...gammaCache, cache: 'MISS' };
@@ -667,7 +554,6 @@ async function healthDataResult() {
       ? result.value
       : { status: 'unavailable', updatedAt: null, sources: [], data: {} };
     const data = payload.data ?? {};
-    const selectedProviders = new Set();
     const missingFields = [];
     let dataAsOf = null;
     let fallbackActive = false;
@@ -677,33 +563,26 @@ async function healthDataResult() {
       if (!Array.isArray(data.candles) || !data.candles.length) missingFields.push('BTC 日 K');
       if (global.totalMarketCapUsd === null || global.totalMarketCapUsd === undefined) missingFields.push('全市场市值');
       dataAsOf = data.candles?.at(-1)?.date ?? null;
-      if (String(data.priceProvider ?? '').includes('Gate.io')) selectedProviders.add('Gate.io');
-      if (String(data.priceProvider ?? '').includes('CoinGecko') || (global.totalMarketCapUsd !== null && global.totalMarketCapUsd !== undefined)) selectedProviders.add('CoinGecko');
       fallbackActive = String(data.priceProvider ?? '').includes('fallback');
     } else if (definition.id === 'sentiment') {
       if (!data.current) missingFields.push('当前恐贪值');
       dataAsOf = data.current?.date ?? data.rows?.at(-1)?.date ?? null;
-      selectedProviders.add('Alternative.me');
     } else if (definition.id === 'onchain') {
       const fieldLabels = { height: '区块高度', feeFast: '下一块费率', feeHour: '约 1 小时费率', mempoolCount: '待确认交易', mempoolSize: '内存池体积' };
       for (const field of ['height', 'feeFast', 'feeHour', 'mempoolCount', 'mempoolSize']) {
         if (data[field] === null || data[field] === undefined) missingFields.push(fieldLabels[field]);
       }
-      Object.values(data.sourceByField ?? {}).forEach((provider) => selectedProviders.add(provider));
-      fallbackActive = [...selectedProviders].some((provider) => provider !== 'Blockstream');
+      fallbackActive = Object.values(data.sourceByField ?? {}).some((provider) => provider !== 'Blockstream');
     } else if (definition.id === 'defi') {
       if (data.totalTvl === null || data.totalTvl === undefined) missingFields.push('全链 TVL');
       if (!Array.isArray(data.stableSeries) || !data.stableSeries.length) missingFields.push('稳定币供给');
       dataAsOf = data.stableSeries?.at(-1)?.date ?? null;
-      selectedProviders.add('DefiLlama');
     }
     const sources = (Array.isArray(payload.sources) ? payload.sources : []).map((source) => ({
       ...source,
       fetchedAt: source.updatedAt ?? null,
-      selected: selectedProviders.has(source.provider) && source.status !== 'unavailable',
-      fields: definition.id === 'onchain'
-        ? Object.entries(data.sourceByField ?? {}).filter(([, provider]) => provider === source.provider).map(([field]) => field)
-        : [source.role],
+      selected: source.selected === true && source.status !== 'unavailable',
+      fields: Array.isArray(source.fields) ? source.fields : [],
     }));
     const selectedTimes = sources.filter((source) => source.selected && source.fetchedAt).map((source) => Date.parse(source.fetchedAt)).filter(Number.isFinite);
     const fetchedAtMs = selectedTimes.length ? Math.min(...selectedTimes) : payload.updatedAt ? Date.parse(payload.updatedAt) : NaN;
@@ -732,42 +611,71 @@ async function healthDataResult() {
   });
   const gammaSettled = settled.at(-1);
   const gammaPayload = gammaSettled.status === 'fulfilled' ? gammaSettled.value.payload : unavailableResult().payload;
-  const gammaUpdatedAt = gammaPayload.asOf ?? null;
-  const gammaUpdatedAtMs = gammaUpdatedAt ? Date.parse(gammaUpdatedAt) : NaN;
+  const gammaFetchedAt = gammaPayload.fetchedAt ?? gammaPayload.asOf ?? null;
+  const gammaDataAsOf = gammaPayload.asOf ?? null;
+  const gammaUpdatedAtMs = gammaDataAsOf ? Date.parse(gammaDataAsOf) : NaN;
+  const gammaSourceStatus = gammaPayload.stale ? 'stale' : ['live', 'partial'].includes(gammaPayload.status) ? 'live' : 'unavailable';
+  const gammaStatus = gammaPayload.status === 'live' ? 'live' : gammaPayload.status === 'partial' ? 'partial' : 'unavailable';
   modules.push({
     id: 'gamma',
-    label: 'BTC Gamma',
+    label: 'Deribit BTC Gamma 估算',
     kind: 'dynamic',
-    status: gammaPayload.status === 'live' ? 'live' : 'unavailable',
-    fetchedAt: gammaUpdatedAt,
-    dataAsOf: gammaUpdatedAt,
+    status: gammaStatus,
+    fetchedAt: gammaFetchedAt,
+    dataAsOf: gammaDataAsOf,
     ageSeconds: Number.isFinite(gammaUpdatedAtMs) ? Math.max(0, Math.round((Date.now() - gammaUpdatedAtMs) / 1000)) : null,
     targetSeconds: 15 * 60,
     overdue: Number.isFinite(gammaUpdatedAtMs) ? Date.now() - gammaUpdatedAtMs > 15 * 60 * 1000 : false,
-    fallbackActive: false,
-    reasonCodes: gammaPayload.status === 'live' ? [] : ['missing_source'],
-    missingFields: gammaPayload.status === 'live' ? [] : ['逐合约 Gamma'],
-    sources: [{
-      provider: 'Bybit',
-      role: 'BTC 逐合约 Gamma 与未平仓量',
-      url: 'https://bybit-exchange.github.io/docs/v5/market/tickers',
-      status: gammaPayload.status === 'live' ? 'live' : 'unavailable',
-      updatedAt: gammaUpdatedAt,
-      fetchedAt: gammaUpdatedAt,
-      selected: gammaPayload.status === 'live',
-      fields: ['Gamma', 'OI', 'BTC 标的价格'],
-    }],
+    fallbackActive: gammaPayload.stale === true,
+    reasonCodes: gammaPayload.status === 'live' ? [] : gammaPayload.status === 'partial' ? [gammaPayload.stale ? 'stale_cache' : 'partial_coverage'] : ['missing_source'],
+    missingFields: gammaPayload.status === 'unavailable' ? ['Deribit OI / 标记 IV'] : [],
+    sources: [
+      {
+        provider: 'Deribit',
+        role: 'BTC 期权合约、到期日与执行价',
+        url: 'https://docs.deribit.com/api-reference/market-data/public-get_instruments',
+        status: gammaSourceStatus,
+        updatedAt: gammaFetchedAt,
+        fetchedAt: gammaFetchedAt,
+        selected: gammaPayload.status !== 'unavailable',
+        fields: ['合约元数据', '到期日', '执行价'],
+      },
+      {
+        provider: 'Deribit',
+        role: 'BTC 期权 OI、标记 IV、利率与参考标的价',
+        url: 'https://docs.deribit.com/api-reference/market-data/public-get_book_summary_by_currency',
+        status: gammaSourceStatus,
+        updatedAt: gammaFetchedAt,
+        fetchedAt: gammaFetchedAt,
+        selected: gammaPayload.status !== 'unavailable',
+        fields: ['OI', '标记 IV', '利率', '参考标的价'],
+      },
+    ],
   });
-  const summary = {
-    healthy: modules.filter((module) => module.status === 'live' && !module.overdue).length,
-    partial: modules.filter((module) => module.status === 'partial').length,
-    unavailable: modules.filter((module) => module.status === 'unavailable').length,
-    overdue: modules.filter((module) => module.overdue).length,
-    cached: modules.filter((module) => module.sources.some((source) => source.status === 'cached' || source.status === 'stale')).length,
+  const effectiveHealth = (module) => module.status === 'unavailable' ? 'unavailable'
+    : module.overdue ? 'stale'
+      : module.status === 'partial' ? 'degraded'
+        : 'healthy';
+  const healthSummary = Object.fromEntries(['healthy', 'degraded', 'stale', 'unavailable'].map((key) => [key, modules.filter((module) => effectiveHealth(module) === key).length]));
+  const deliverySummary = {
+    network: modules.filter((module) => module.sources.some((source) => source.selected === true && source.status === 'live')).length,
+    freshCache: modules.filter((module) => module.sources.some((source) => source.selected === true && source.status === 'cached')).length,
+    staleCache: modules.filter((module) => module.sources.some((source) => source.selected === true && source.status === 'stale')).length,
   };
-  const availableCount = modules.length - summary.unavailable;
+  const cachedModuleCount = modules.filter((module) => module.sources.some((source) => source.selected === true && ['cached', 'stale'].includes(source.status))).length;
+  const summary = {
+    total: modules.length,
+    health: healthSummary,
+    delivery: deliverySummary,
+    healthy: healthSummary.healthy,
+    partial: healthSummary.degraded,
+    unavailable: healthSummary.unavailable,
+    overdue: healthSummary.stale,
+    cached: cachedModuleCount,
+  };
+  const availableCount = modules.length - healthSummary.unavailable;
   const status = !availableCount ? 'unavailable'
-    : summary.partial || summary.unavailable || summary.overdue ? 'partial'
+    : healthSummary.degraded || healthSummary.stale || healthSummary.unavailable ? 'partial'
     : 'live';
   return {
     service: 'btc-capital-pulse',
@@ -803,7 +711,16 @@ const DATA_ROUTES = new Map([
       checkedAt: null,
       serverStartedAt: null,
       uptimeSeconds: null,
-      summary: { live: 0, partial: 0, unavailable: 5, stale: 0 },
+      summary: {
+        total: 5,
+        health: { healthy: 0, degraded: 0, stale: 0, unavailable: 5 },
+        delivery: { network: 0, freshCache: 0, staleCache: 0 },
+        healthy: 0,
+        partial: 0,
+        unavailable: 5,
+        overdue: 0,
+        cached: 0,
+      },
       modules: [],
       automation: null,
     },
@@ -821,6 +738,9 @@ const DATA_ROUTES = new Map([
       },
       candles: [],
       priceProvider: null,
+      btcPriceProvider: null,
+      btcPriceAsOf: null,
+      btcCandlesAsOf: null,
     },
   }],
   ['/api/data/sentiment', {

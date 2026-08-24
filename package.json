@@ -9,6 +9,7 @@
     "build:pages": "node scripts/build-pages.mjs",
     "validate:pages": "node scripts/validate-pages.mjs",
     "validate": "node scripts/validate-static-data.mjs",
+    "test:deribit": "node scripts/test-deribit-options.mjs",
     "check:live": "node scripts/check-live-services.mjs",
     "schedule": "node scripts/manage-schedule.mjs status"
   },
