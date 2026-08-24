@@ -32,6 +32,14 @@ jobs:
           node-version: 24
           package-manager-cache: false
 
+      - name: Restore last successful Deribit snapshot
+        uses: actions/cache@v4
+        with:
+          path: .runtime/pages-cache/gamma-last-good.json
+          key: deribit-gamma-v2-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            deribit-gamma-v2-${{ runner.os }}-
+
       - name: Refresh BTC seasonality
         continue-on-error: true
         run: node scripts/update-static-data.mjs --only=seasonality
@@ -42,6 +50,9 @@ jobs:
 
       - name: Validate static history
         run: npm run validate
+
+      - name: Validate Deribit Gamma model
+        run: npm run test:deribit
 
       - name: Build safe Pages artifact
         run: npm run build:pages
