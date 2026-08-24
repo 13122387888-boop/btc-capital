@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="BTC Capital Pulse — 免费公开数据驱动的比特币资金、行情、链上与衍生品仪表盘" />
+  <title>BTC Capital Pulse · 资本脉搏终端</title>
+  <link rel="stylesheet" href="./styles.css" />
+  <link rel="stylesheet" href="./enhancements.css" />
+</head>
+<body>
+  <aside class="rail" aria-label="数据分区导航">
+    <a class="rail-brand" href="#overview" aria-label="BTC Capital Pulse 首页"><span>₿</span><b>CAPITAL<br>PULSE</b></a>
+    <nav>
+      <a class="active" href="#overview"><i>01</i><span>市场总览<small>Overview</small></span></a>
+      <a href="#etf"><i>02</i><span>机构在买什么<small>ETF 资金流</small></span></a>
+      <a href="#market"><i>03</i><span>市场涨跌<small>行情与情绪</small></span></a>
+      <a href="#onchain"><i>04</i><span>链上拥堵<small>Bitcoin 网络</small></span></a>
+      <a href="#options"><i>05</i><span>期权市场<small>IBIT + BTC Gamma</small></span></a>
+      <a href="#seasonality"><i>06</i><span>历史季节性<small>月度回报热力图</small></span></a>
+      <a href="#defi"><i>07</i><span>稳定币与流动性<small>DeFi</small></span></a>
+      <a href="#health"><i>08</i><span>数据健康<small>Freshness & Sources</small></span></a>
+      <a href="#methodology"><i>09</i><span>口径与来源<small>Methodology</small></span></a>
+    </nav>
+    <div class="rail-foot"><span class="pulse-dot"></span><b id="rail-status">正在读取公开数据</b><small id="rail-mode-note">零密钥 · 本地缓存</small></div>
+  </aside>
+
+  <header class="topbar">
+    <button class="mobile-menu" id="mobile-menu" aria-label="打开导航" aria-expanded="false">☰</button>
+    <div class="ticker" aria-live="polite">
+      <span>BTC <b id="ticker-btc">—</b> <i id="ticker-btc-change">—</i></span>
+      <span>ETH <b id="ticker-eth">—</b> <i id="ticker-eth-change">—</i></span>
+      <span>总市值 <b id="ticker-mcap">—</b></span>
+      <span>情绪 <b id="ticker-fng">—</b></span>
+      <span>快速费率 <b id="ticker-fee">—</b></span>
+    </div>
+    <a class="update-state" href="#health" aria-label="查看数据健康状态"><span class="pulse-dot"></span><span id="update-time">等待更新</span></a>
+  </header>
+
+  <main>
+    <section class="hero section" id="overview">
+      <div class="section-code">01 / MARKET OVERVIEW</div>
+      <div class="hero-grid">
+        <div class="hero-copy">
+          <p class="kicker">BITCOIN FUNDAMENTALS · MARKET INTELLIGENCE</p>
+          <h1>看见资金，<br><em>读懂周期。</em></h1>
+          <p class="lead"><b>Bitcoin 是一种总量上限 2,100 万枚、无需许可即可全球结算的数字资产。</b>它约每 10 分钟产生一个区块，并通过约四年一次的减半控制新增供给。本页把稀缺性、网络安全、机构需求和市场情绪放进同一套可追溯的数据框架。</p>
+          <div class="fundamental-points"><span><b>21M</b>固定供应上限</span><span><b>≈10 分钟</b>平均出块目标</span><span><b>4 年</b>约一次减半</span><span><b>24 × 7</b>全球市场</span></div>
+          <div class="trust-row"><span>无需登录</span><span>公开数据源</span><span>缓存状态透明</span></div>
+        </div>
+        <article class="price-hero loading" id="price-hero">
+          <div class="panel-label"><span>BITCOIN / USD</span><b class="state-badge" data-source-state="price">LOADING</b></div>
+          <div class="hero-price" id="btc-price">—</div>
+          <div class="hero-change" id="btc-change">等待实时行情</div>
+          <div class="chart-toolbar compact" data-chart-toolbar="price">
+            <div class="range-tabs" aria-label="BTC 价格图时间范围"><button type="button" data-range-chart="price" data-range="7D" aria-pressed="false">7D</button><button type="button" data-range-chart="price" data-range="30D" class="active" aria-pressed="true">30D</button><button type="button" data-range-chart="price" data-range="90D" aria-pressed="false">90D</button><button type="button" data-range-chart="price" data-range="1Y" aria-pressed="false">1Y</button></div>
+            <span class="hover-hint">悬停或用 ← → 查看</span>
+          </div>
+          <canvas id="price-chart" height="150" aria-label="BTC 价格走势"></canvas>
+          <div class="price-range"><span><i id="price-period">MONTHLY STATIC</i> LOW <b id="btc-low">—</b></span><span>HIGH <b id="btc-high">—</b></span></div>
+          <div class="definition"><b>口径</b> 当前价及 24H 涨跌优先取 Gate.io BTC/USDT 公开现货行情；CoinGecko 仅在交易所行情不可用时备用。折线按所选 7D / 30D / 90D / 1Y 范围使用已收盘日 K，悬停或键盘方向键可读取具体日期。<a href="https://www.gate.com/docs/developers/apiv4/en/#retrieve-ticker-information" target="_blank" rel="noreferrer">来源：Gate.io Public API ↗</a></div>
+        </article>
+      </div>
+      <article class="today-brief" aria-labelledby="today-brief-title">
+        <div class="today-brief-head">
+          <div><span>DAILY BRIEF</span><h2 id="today-brief-title">今日三句话</h2></div>
+          <small id="today-brief-updated">正在汇总最新数据…</small>
+        </div>
+        <div class="today-brief-grid">
+          <div><i aria-hidden="true">01</i><p><b>价格</b><span id="today-price-summary">正在判断 BTC 的短期方向与价格位置…</span></p></div>
+          <div><i aria-hidden="true">02</i><p><b>资金</b><span id="today-flow-summary">正在汇总 ETF 的近期流入或流出…</span></p></div>
+          <div><i aria-hidden="true">03</i><p><b>风险</b><span id="today-risk-summary">正在结合情绪和期权关键位评估风险…</span></p></div>
+        </div>
+      </article>
+      <div class="overview-stats">
+        <article><span>BTC ETF 最新单日净流</span><strong id="stat-etf-last">—</strong><small id="stat-etf-date">截至 —</small><div class="definition"><b>口径</b> 美国现货 BTC ETF 当日各基金净申购赎回金额合计，单位百万美元。<a href="https://farside.co.uk/bitcoin-etf-flow-all-data/" target="_blank" rel="noreferrer">来源：Farside / 公开汇总 ↗</a></div></article>
+        <article><span>BTC 市值占比</span><strong id="stat-dominance">—</strong><small>占加密总市值</small><div class="definition"><b>口径</b> BTC 市值 ÷ 全部加密资产总市值。<a href="https://docs.coingecko.com/reference/crypto-global" target="_blank" rel="noreferrer">来源：CoinGecko Global ↗</a></div></article>
+        <article><span>恐慌与贪婪</span><strong id="stat-fng">—</strong><small id="stat-fng-label">等待数据</small><div class="definition"><b>口径</b> 0–100 综合情绪指数；0 极度恐慌，100 极度贪婪。<a href="https://alternative.me/crypto/fear-and-greed-index/" target="_blank" rel="noreferrer">来源：Alternative.me ↗</a></div></article>
+        <article><span>固定供应上限</span><strong>2,100 万枚</strong><small>协议级长期约束</small><div class="definition"><b>口径</b> Bitcoin 协议设定的理论最大供应量；实际可流通数量会因私钥丢失等原因更低。<a href="https://bitcoin.org/bitcoin.pdf" target="_blank" rel="noreferrer">来源：Bitcoin 白皮书 / 协议规则 ↗</a></div></article>
+      </div>
+    </section>
+
+    <section class="section" id="etf">
+      <div class="section-head"><div><p class="section-code">02 / INSTITUTIONAL FLOW</p><h2>机构资金正在买入 BTC 吗？</h2><p>绿色柱代表净买入，红色柱代表净卖出；橙色线代表 BTC 价格。</p></div><span class="state-badge static" id="etf-static-state">STATIC · —</span></div>
+      <div class="insight" id="etf-insight"><b>先看结论</b><span>正在计算机构资金与 BTC 价格的同步变化…</span></div>
+      <article class="panel etf-rolling-panel">
+        <div class="panel-title"><div><span>SHORT-TERM ETF FLOW</span><h3>近期机构资金方向</h3></div><div class="chart-panel-actions"><span class="mini-note">绿线 5日 · 橙线 20日 · 截至 2026-08-21</span><div class="chart-toolbar"><div class="range-tabs" aria-label="ETF 滚动资金图时间范围"><button type="button" data-range-chart="etfRolling" data-range="7D" aria-pressed="false">7D</button><button type="button" data-range-chart="etfRolling" data-range="30D" class="active" aria-pressed="true">30D</button><button type="button" data-range-chart="etfRolling" data-range="90D" aria-pressed="false">90D</button><button type="button" data-range-chart="etfRolling" data-range="1Y" aria-pressed="false">1Y</button></div><label class="overlay-toggle"><input type="checkbox" data-overlay-chart="etfRolling">BTC K线</label></div></div></div>
+        <div class="etf-rolling-layout">
+          <div class="etf-rolling-metrics">
+            <div><span>最近 5 个交易日净流</span><strong id="etf-flow-5d">—</strong><small>短期资金方向</small></div>
+            <div><span>最近 20 个交易日净流</span><strong id="etf-flow-20d">—</strong><small>约一个交易月</small></div>
+            <div><span>最近交易日净流</span><strong id="etf-flow-latest">—</strong><small>单日变化 · 百万美元</small></div>
+          </div>
+          <canvas id="etf-rolling-chart" height="260" aria-label="BTC ETF 5日与20日滚动净流趋势图"></canvas>
+        </div>
+        <div class="definition"><b>怎么看</b> 5 日净流更敏感，20 日净流更平滑；两者同向时，机构资金方向通常更清楚。滚动值先用完整快照计算，再按所选范围截取，避免窗口起点失真；“BTC K线”只叠加同日 Gate.io 已收盘 K 线。ETF 单位为百万美元，截止日期以本页静态状态为准。<a href="https://farside.co.uk/bitcoin-etf-flow-all-data/" target="_blank" rel="noreferrer">来源：Farside Investors / Gate.io ↗</a></div>
+      </article>
+      <div class="wide-grid">
+        <article class="panel chart-panel">
+          <div class="panel-title"><div><span>BTC SPOT ETF × BTC PRICE</span><h3>月度资金流与 BTC 月末/当前价格</h3></div><div class="chart-panel-actions"><div class="legend"><i class="in"></i>ETF 净流 <i class="price-line"></i>BTC 价格</div><div class="chart-toolbar"><div class="range-tabs" aria-label="ETF 月度组合图时间范围"><button type="button" data-range-chart="etfCombo" data-range="6M" aria-pressed="false">6M</button><button type="button" data-range-chart="etfCombo" data-range="1Y" class="active" aria-pressed="true">1Y</button><button type="button" data-range-chart="etfCombo" data-range="ALL" aria-pressed="false">全部</button></div><label class="overlay-toggle"><input type="checkbox" data-overlay-chart="etfCombo" checked>BTC 价格</label></div></div></div>
+          <canvas id="etf-chart" height="300" aria-label="BTC ETF 月度资金流与 BTC 价格组合图"></canvas>
+          <div class="chart-summary"><span>展示期净流 <b id="etf-window">—</b></span><span>净流入月份占比 <b id="etf-hit">—</b></span><span>最大单月流入 <b id="etf-max">—</b></span></div>
+          <div class="definition"><b>口径</b> 柱形为每月美国现货 BTC ETF 净流量合计（左轴，百万美元）；折线为 Gate.io BTC/USDT 月末收盘价（右轴），当月未结束时使用 Gate.io 当前现货价。ETF 截止 2026-08-21，当前价可能更新得更晚。组合图只用于观察同向或背离，不代表因果关系。<a href="https://farside.co.uk/bitcoin-etf-flow-all-data/" target="_blank" rel="noreferrer">来源：Farside ETF 数据 / Gate.io 行情 ↗</a></div>
+        </article>
+        <article class="panel table-panel">
+          <div class="panel-title"><div><span>RECENT SESSIONS</span><h3>最近 8 个交易日</h3></div></div>
+          <div class="flow-table" role="table" aria-label="最近 ETF 资金流"><div class="tr th" role="row"><span>日期</span><span>BTC</span><span>ETH</span></div><div id="flow-rows"></div></div>
+          <div class="definition"><b>口径</b> BTC、ETH 均为美国现货 ETF 单日净流量，单位百万美元；0 表示当日公开合计为零。该表为带截止日期的静态快照，不会伪装成实时数据。<a href="https://farside.co.uk/bitcoin-etf-flow-all-data/" target="_blank" rel="noreferrer">BTC 来源：Farside ↗</a><a href="https://farside.co.uk/ethereum-etf-flow-all-data/" target="_blank" rel="noreferrer">ETH 来源：Farside ↗</a></div>
+        </article>
+      </div>
+    </section>
+
+    <section class="section" id="market">
+      <div class="section-head"><div><p class="section-code">03 / MARKET & SENTIMENT</p><h2>市场现在强不强？</h2><p>先看主要币种涨跌，再看情绪和资金是否过度拥挤。</p></div><div class="module-state"><span class="state-badge" data-source-state="market">LOADING</span><small class="module-updated" id="market-updated">更新时间：等待首次更新</small></div></div>
+      <div class="insight" id="market-insight"><b>先看结论</b><span>正在读取市场价格与情绪…</span></div>
+      <div class="market-grid">
+        <article class="panel coins-panel"><div class="panel-title"><div><span>MARKET SNAPSHOT</span><h3>主要资产快照</h3></div><span class="mini-note">USD · 24H</span></div><div class="coin-list" id="coin-list"><div class="empty">正在读取统一数据服务...</div></div><div class="definition"><b>口径</b> BTC/ETH 价格与 24 小时涨跌优先采用 Gate.io，其他资产与流通市值采用 CoinGecko；不同交易所可能存在轻微价差。<a href="https://www.gate.com/docs/developers/apiv4/en/" target="_blank" rel="noreferrer">来源：Gate.io / CoinGecko ↗</a></div></article>
+        <article class="panel sentiment-panel"><div class="panel-title"><div><span>FEAR & GREED GAUGE</span><h3>恐慌与贪婪仪表盘</h3></div></div><canvas id="fng-gauge" height="210" aria-label="恐慌与贪婪指数仪表盘"></canvas><div class="gauge-summary"><span>当前 <b id="gauge-value">—</b></span><span>7 日变化 <b id="fng-7d">—</b></span></div><div class="definition"><b>口径</b> 0–24 极度恐慌，25–44 恐慌，45–55 中性，56–75 贪婪，76–100 极度贪婪；优先采用 Alternative.me 返回的当日分类。<a href="https://alternative.me/crypto/fear-and-greed-index/" target="_blank" rel="noreferrer">来源：Alternative.me ↗</a></div></article>
+        <article class="panel global-panel"><div class="panel-title"><div><span>GLOBAL STRUCTURE</span><h3>全市场结构</h3></div></div><dl class="metric-list"><div><dt>加密总市值</dt><dd id="global-mcap">—</dd></div><div><dt>24H 总成交额</dt><dd id="global-volume">—</dd></div><div><dt>BTC 主导率</dt><dd id="global-btc-dom">—</dd></div><div><dt>ETH 主导率</dt><dd id="global-eth-dom">—</dd></div><div><dt>活跃币种数</dt><dd id="global-coins">—</dd></div></dl><div class="definition"><b>口径</b> CoinGecko 收录市场的聚合市值、交易额、主导率和活跃资产数量。<a href="https://docs.coingecko.com/reference/crypto-global" target="_blank" rel="noreferrer">来源：CoinGecko Global ↗</a></div></article>
+      </div>
+      <article class="panel fng-kline-panel"><div class="panel-title"><div><span>BTC CANDLESTICKS × FEAR & GREED</span><h3>BTC K 线与恐贪指数（双轴叠加）</h3></div><div class="chart-panel-actions"><div class="legend"><i class="k-up"></i>上涨 K 线 <i class="k-down"></i>下跌 K 线 <i class="fng-line"></i>恐贪指数</div><div class="chart-toolbar"><div class="range-tabs" aria-label="BTC K线与恐贪图时间范围"><button type="button" data-range-chart="fng" data-range="7D" aria-pressed="false">7D</button><button type="button" data-range-chart="fng" data-range="30D" aria-pressed="false">30D</button><button type="button" data-range-chart="fng" data-range="90D" class="active" aria-pressed="true">90D</button><button type="button" data-range-chart="fng" data-range="1Y" aria-pressed="false">1Y</button></div><label class="overlay-toggle"><input type="checkbox" data-overlay-chart="fng" checked>恐贪曲线</label></div></div></div><canvas id="fng-kline-chart" height="420" aria-label="BTC K线与恐慌贪婪指数双轴叠加图"></canvas><div class="definition"><b>怎么看</b> 已收盘 BTC/USDT 日 K 线和恐贪指数画在同一绘图区：左轴是 BTC 美元价格，右轴是 0–100 的情绪指数。用于观察同步或背离，不代表两者存在因果关系。<a href="https://www.gate.com/docs/developers/apiv4/en/#market-candlesticks" target="_blank" rel="noreferrer">来源：Gate.io Public API / Alternative.me ↗</a></div></article>
+    </section>
+
+    <section class="section" id="onchain">
+      <div class="section-head"><div><p class="section-code">04 / BITCOIN ON-CHAIN</p><h2>链上现在拥堵吗？</h2><p>用区块高度、确认费率和内存池待确认规模判断当前区块空间需求。</p></div><div class="module-state"><span class="state-badge" data-source-state="onchain">LOADING</span><small class="module-updated" id="onchain-updated">更新时间：等待首次更新</small></div></div>
+      <div class="insight" id="onchain-insight"><b>先看结论</b><span>正在读取链上费用与内存池状态…</span></div>
+      <div class="metric-cards">
+        <article class="metric-card"><span>区块高度</span><strong id="chain-height">—</strong><small>当前最长链顶端区块</small><div class="definition"><b>口径</b> 公共节点观察到的 Bitcoin 主链最新区块高度；不同节点同步时间可能相差 1 个区块。<a href="https://github.com/Blockstream/esplora/blob/master/API.md" target="_blank" rel="noreferrer">主源：Blockstream Esplora ↗</a><a href="https://mempool.space/docs/api/rest" target="_blank" rel="noreferrer">备用：mempool.space / Blockchair ↗</a></div></article>
+        <article class="metric-card"><span>下一块费率</span><strong id="fee-fast">—</strong><small>sat/vB · 目标 1 个区块</small><div class="definition"><b>口径</b> Blockstream 对目标 1 个区块给出的费率估算，单位 sat/vB；它不是确认保证或实际支付费用。主源失败时采用 mempool.space 的同单位推荐值；Blockchair 的 sat/byte 口径不会填入本卡。<a href="https://github.com/Blockstream/esplora/blob/master/API.md" target="_blank" rel="noreferrer">主源：Blockstream Fee Estimates ↗</a><a href="https://mempool.space/docs/api/rest" target="_blank" rel="noreferrer">备用：mempool.space ↗</a></div></article>
+        <article class="metric-card"><span>约 1 小时费率</span><strong id="fee-hour">—</strong><small>sat/vB · 目标约 6 个区块</small><div class="definition"><b>口径</b> Blockstream 对目标约 6 个区块给出的费率估算，单位 sat/vB。主源失败时采用 mempool.space 的同单位推荐值；不同单位不会静默混用。<a href="https://github.com/Blockstream/esplora/blob/master/API.md" target="_blank" rel="noreferrer">主源：Blockstream Fee Estimates ↗</a><a href="https://mempool.space/docs/api/rest" target="_blank" rel="noreferrer">备用：mempool.space ↗</a></div></article>
+        <article class="metric-card"><span>待确认交易</span><strong id="mempool-count">—</strong><small id="mempool-vsize">内存池体积 —</small><div class="definition"><b>口径</b> 交易数来自数据源节点的内存池；Blockstream `vsize` 是虚拟字节总量，Blockchair `mempool_size` 是普通字节总量，两者不可直接当作同口径趋势比较。不同节点的接纳策略也会使待确认数量存在差异。<a href="https://github.com/Blockstream/esplora/blob/master/API.md" target="_blank" rel="noreferrer">主源：Blockstream Mempool ↗</a><a href="https://github.com/Blockchair/Blockchair.Support/blob/master/API_DOCUMENTATION_EN.md" target="_blank" rel="noreferrer">备用：Blockchair ↗</a></div></article>
+      </div>
+    </section>
+
+    <section class="section" id="options">
+      <div class="section-head"><div><p class="section-code">05 / OPTIONS MARKET</p><h2>期权市场如何定价风险？</h2><p>IBIT 静态快照用于观察美国 ETF 期权成交结构；Bybit BTC 期权用于观察 Gamma 分布，两者口径不会混算。</p></div><span class="state-badge static" id="options-static-state">IBIT 快照 · —</span></div>
+      <div class="insight" id="options-insight"><b>先看结论</b><span>正在计算 IBIT 期权看涨/看跌需求…</span></div>
+      <div class="metric-cards options-cards"><article class="metric-card"><span>看涨期权成交量</span><strong id="option-call-volume">—</strong><small>Call volume · 2026-08-21</small><div class="definition"><b>口径</b> IBIT 全部上市期权在最近完整交易日的看涨合约成交张数。<a href="https://longbridge.com/" target="_blank" rel="noreferrer">来源：Longbridge Securities ↗</a></div></article><article class="metric-card"><span>看跌期权成交量</span><strong id="option-put-volume">—</strong><small>Put volume · 2026-08-21</small><div class="definition"><b>口径</b> IBIT 全部上市期权在最近完整交易日的看跌合约成交张数。<a href="https://longbridge.com/" target="_blank" rel="noreferrer">来源：Longbridge Securities ↗</a></div></article><article class="metric-card"><span>看跌/看涨成交比</span><strong id="option-pc-ratio">—</strong><small>Put volume ÷ Call volume · 2026-08-21</small><div class="definition"><b>口径</b> 最近完整交易日的看跌成交量 ÷ 看涨成交量；高于 1 表示看跌成交更多，但不等于市场一定下跌。<a href="https://longbridge.com/" target="_blank" rel="noreferrer">来源：Longbridge Securities ↗</a></div></article><article class="metric-card"><span>未平仓合约</span><strong id="option-oi">—</strong><small>Open interest · 2026-08-21</small><div class="definition"><b>口径</b> 最近完整交易日尚未平仓或到期的 IBIT 期权合约总张数。<a href="https://longbridge.com/" target="_blank" rel="noreferrer">来源：Longbridge Securities ↗</a></div></article></div>
+      <article class="panel trend-panel options-panel"><div class="panel-title"><div><span>CALL × PUT VOLUME · PUT/CALL RATIO</span><h3>IBIT 期权成交结构</h3></div><div class="chart-panel-actions"><div class="legend"><i class="call-bar"></i>看涨成交 <i class="put-bar"></i>看跌成交 <i class="ratio-line"></i>看跌/看涨比</div><div class="chart-toolbar"><div class="range-tabs" aria-label="IBIT 期权图时间范围"><button type="button" data-range-chart="options" data-range="7D" aria-pressed="false">7D</button><button type="button" data-range-chart="options" data-range="30D" class="active" aria-pressed="true">30D</button><button type="button" data-range-chart="options" data-range="90D" aria-pressed="false">90D</button></div></div></div></div><canvas id="options-chart" height="310" aria-label="IBIT期权看涨看跌成交量与看跌看涨比趋势图"></canvas><div class="definition"><b>怎么看</b> 绿色柱是看涨成交量，蓝色柱是看跌成交量，橙色线是看跌/看涨比（右轴）。该指标反映交易结构，不直接等同于净多头或净空头。<a href="https://longbridge.com/" target="_blank" rel="noreferrer">来源：Longbridge Securities · IBIT.US 期权公开行情 ↗</a></div></article>
+      <article class="panel gamma-panel"><div class="panel-title"><div><span>GAMMA EXPOSURE · BYBIT BTC OPTIONS</span><h3>BTC 期权 Gamma 敞口（代理）</h3></div><div class="gamma-meta"><div class="legend" aria-label="Gamma 代理指标图例"><i class="in"></i>Call 代理 GEX <i class="out"></i>Put 代理 GEX <i class="ratio-line"></i>净代理 GEX <span class="state-badge" id="gamma-state">LOADING</span></div><small class="module-updated" id="gamma-updated">更新时间：等待首次更新</small></div></div><div class="gamma-summary"><span>净代理 GEX <b id="gamma-net">—</b></span><span>Call 峰值 <b id="gamma-positive">—</b></span><span>Put 峰值 <b id="gamma-negative">—</b></span><span>到期日 <b id="gamma-expiry">—</b></span><span>局部净 GEX 过零参考 <b id="gamma-zero">—</b></span><span>现价附近倾向 <b id="gamma-bias">—</b></span></div><div class="gamma-key-insight" id="gamma-key-insight"><b>关键位</b><span>正在计算现价附近的 Gamma 分布；局部净 GEX 过零参考位不是严格意义上的 dealer gamma flip。</span></div><div class="gamma-stage"><canvas id="gamma-chart" height="310" aria-label="Bybit BTC期权Gamma敞口按行权价分布图"></canvas><div class="gamma-message" id="gamma-message">正在读取 Bybit 免费公开期权行情…</div></div><div class="definition"><b>口径</b> 代理 GEX = Gamma × 未平仓 BTC 数量 × BTC 现价² × 1%；Bybit BTC 期权合约乘数为 1。Call 代理记正（绿）、Put 代理记负（红），净代理为两者相加（橙）。这里只覆盖 Bybit BTC 期权，并非全市场；Call 正、Put 负是统一符号假设，不是观察到的 dealer / 做市商真实持仓。“局部净 GEX 过零参考位”只依据当前图中相邻执行价的净代理 GEX 估算，不是严格的 dealer gamma flip。<a href="https://bybit-exchange.github.io/docs/v5/market/tickers" target="_blank" rel="noreferrer">来源：Bybit V5 Public API · 免费、无需密钥 ↗</a></div></article>
+    </section>
+
+    <section class="section" id="seasonality">
+      <div class="section-head"><div><p class="section-code">06 / SEASONALITY</p><h2>历史上哪些月份更强？</h2><p>按年份横向比较每月、季度和全年回报，颜色越深代表涨跌幅越大。</p></div><span class="state-badge static" id="seasonality-static-state">DAILY CLOSE · —</span></div>
+      <div class="insight" id="seasonality-insight"><b>先看结论</b><span>正在计算历史月份胜率与平均回报…</span></div>
+      <article class="panel heatmap-panel"><div class="heatmap-wrap" id="seasonality-heatmap"></div><div class="definition"><b>口径</b> 月回报 = 当月最后一个 BTC/USDT 日收盘价 ÷ 上月最后一个日收盘价 − 1；季度须有 3 个完整月、全年须有 12 个完整月，否则显示“—”。带 * 的 2026 年 8 月为截至 8 月 23 日的 MTD，仅展示、不纳入历史均值和胜率。<a href="https://www.gate.com/docs/developers/apiv4/en/#market-candlesticks" target="_blank" rel="noreferrer">来源：Gate.io Public API · 截至 2026-08-23 ↗</a></div></article>
+    </section>
+
+    <section class="section" id="defi">
+      <div class="section-head"><div><p class="section-code">07 / DEFI LIQUIDITY</p><h2>链上美元流动性在扩张吗？</h2><p>稳定币供给增长代表更多链上美元资产存在，但不等于资金一定会买入 BTC。</p></div><div class="module-state"><span class="state-badge" data-source-state="defi">LOADING</span><small class="module-updated" id="defi-updated">更新时间：等待首次更新</small></div></div>
+      <div class="insight" id="defi-insight"><b>先看结论</b><span>正在计算稳定币供给变化…</span></div>
+      <div class="metric-cards defi-cards">
+        <article class="metric-card"><span>全链 DeFi TVL</span><strong id="defi-tvl">—</strong><small>当前美元价值</small><div class="definition"><b>口径</b> DefiLlama 各链 TVL 加总；按代币美元价折算，可能因价格波动变化。<a href="https://defillama.com/docs/api" target="_blank" rel="noreferrer">来源：DefiLlama ↗</a></div></article>
+        <article class="metric-card"><span>稳定币总供给</span><strong id="stable-supply">—</strong><small>全链流通美元锚定资产</small><div class="definition"><b>口径</b> DefiLlama 收录稳定币的 circulating USD 汇总，不等于银行现金储备。<a href="https://defillama.com/stablecoins" target="_blank" rel="noreferrer">来源：DefiLlama Stablecoins ↗</a></div></article>
+        <article class="metric-card"><span>稳定币 30 日变化</span><strong id="stable-change">—</strong><small>供给净扩张 / 收缩</small><div class="definition"><b>口径</b> 当前稳定币总供给相对约 30 天前的百分比变化。<a href="https://defillama.com/stablecoins" target="_blank" rel="noreferrer">来源：DefiLlama Stablecoins ↗</a></div></article>
+        <article class="metric-card"><span>TVL 最大公链</span><strong id="top-chain">—</strong><small id="top-chain-tvl">TVL —</small><div class="definition"><b>口径</b> 按 DefiLlama 当前 TVL 排名第一的区块链，不含 CEX 资产。<a href="https://defillama.com/chains" target="_blank" rel="noreferrer">来源：DefiLlama Chains ↗</a></div></article>
+      </div>
+      <article class="panel trend-panel"><div class="panel-title"><div><span>STABLECOIN SUPPLY × BTC PRICE</span><h3>稳定币供给与 BTC 价格</h3></div><div class="chart-panel-actions"><div class="legend"><i class="stable-line"></i>稳定币供给 <i class="price-line"></i>BTC 价格</div><div class="chart-toolbar"><div class="range-tabs" aria-label="稳定币供给图时间范围"><button type="button" data-range-chart="defi" data-range="6M" aria-pressed="false">6M</button><button type="button" data-range-chart="defi" data-range="1Y" class="active" aria-pressed="true">1Y</button><button type="button" data-range-chart="defi" data-range="2Y" aria-pressed="false">2Y</button></div><label class="overlay-toggle"><input type="checkbox" data-overlay-chart="defi" checked>BTC 价格</label></div></div></div><canvas id="defi-chart" height="250" aria-label="稳定币供给与 BTC 价格组合趋势图"></canvas><div class="definition"><b>怎么看</b> 绿色线是全链稳定币日度供给（左轴），橙色线是同日 BTC 已收盘价格（右轴，可关闭）；缺失日期不会静默向前填充。两者同向上升代表流动性与价格共振，背离时仍需谨慎解读。<a href="https://defillama.com/stablecoins" target="_blank" rel="noreferrer">来源：DefiLlama / Gate.io ↗</a></div></article>
+    </section>
+
+    <section class="section health-section" id="health">
+      <div class="section-head"><div><p class="section-code">08 / DATA HEALTH</p><h2>这些数据现在还能信吗？</h2><p>逐模块检查更新时间、缓存状态、备用源与静态快照截止日。</p></div><div class="module-state"><span class="state-badge" data-source-state="health">CHECKING</span><small class="module-updated" id="health-checked">等待首次检查</small></div></div>
+      <div class="insight" id="health-insight"><b>健康结论</b><span>正在检查动态接口和静态快照…</span></div>
+      <div class="health-summary" aria-label="数据健康汇总">
+        <article><span>状态正常</span><strong id="health-live-count">—</strong><small>字段完整且在更新窗口内</small></article>
+        <article><span>部分可用</span><strong id="health-partial-count">—</strong><small>至少一个字段或备用源缺失</small></article>
+        <article><span>使用缓存</span><strong id="health-cached-count">—</strong><small>上游未刷新，沿用最近成功值</small></article>
+        <article><span>不可用 / 过期</span><strong id="health-error-count">—</strong><small>没有可信读数或超过更新窗口</small></article>
+      </div>
+      <div class="health-grid">
+        <article class="panel health-panel"><div class="panel-title"><div><span id="health-runtime-kicker">DYNAMIC MODULES</span><h3 id="health-runtime-title">动态数据与上游状态</h3></div><button class="health-refresh" id="health-refresh" type="button">重新检查</button></div><div class="health-list" id="health-modules"><div class="empty">正在读取数据健康接口…</div></div><div class="definition" id="health-runtime-definition"><b>抓取新鲜度窗口</b> 行情、链上与 Gamma 15 分钟，情绪 60 分钟，DeFi 120 分钟。抓取时间与数据本身截止日会分开显示；“缓存命中”不等于过期。</div></article>
+        <article class="panel health-panel"><div class="panel-title"><div><span>STATIC SNAPSHOTS</span><h3>静态快照与更新责任</h3></div><span class="mini-note">日期来自 data.js</span></div><div class="health-list" id="health-static"><div class="empty">正在核对快照截止日…</div></div><div class="definition"><b>静态口径</b> ETF 与 IBIT 目标为每个美国交易日收盘后更新；季节性按 Gate.io 日 K 重建。周末与休市日不会把“没有新交易日”误判为数据丢失。</div></article>
+      </div>
+    </section>
+
+    <section class="section methodology" id="methodology">
+      <div class="section-head"><div><p class="section-code">09 / METHODOLOGY</p><h2>数据口径与来源目录</h2><p>每项数据在页面内就近标注；这里集中说明更新、缓存与失效策略。</p></div><span class="state-badge static">PUBLIC SOURCES</span></div>
+      <div class="method-grid"><article id="runtime-method"><span>LIVE</span><h3>统一数据服务</h3><p>本地服务统一读取交易所现货与 K 线、市场情绪、链上和 DeFi 官方公开端点，再向页面返回归一化字段。</p></article><article id="cache-method"><span>CACHED</span><h3>双层缓存</h3><p>服务端按来源设置缓存和并发去重，浏览器保留最近成功结果；上游短暂不可达时明确标为 CACHED。</p></article><article><span>STATIC</span><h3>可复算快照</h3><p>ETF、IBIT 期权和季节性矩阵保留明确截止日期，并由更新与校验脚本生成，不会被标记为实时。</p></article><article><span>UNAVAILABLE</span><h3>失败与空值</h3><p>实时接口和缓存均不可用时显示“—”或 UNAVAILABLE，不用演示数字替代。</p></article></div>
+      <div class="source-directory"><a href="https://www.gate.com/docs/developers/apiv4/en/" target="_blank" rel="noreferrer"><b>Gate.io</b><span>BTC/ETH 现货与 BTC 日 K 线</span></a><a href="https://www.coingecko.com/en/api" target="_blank" rel="noreferrer"><b>CoinGecko</b><span>备用价格、市值与全市场结构</span></a><a href="https://alternative.me/crypto/fear-and-greed-index/" target="_blank" rel="noreferrer"><b>Alternative.me</b><span>恐慌与贪婪指数</span></a><a href="https://github.com/Blockstream/esplora/blob/master/API.md" target="_blank" rel="noreferrer"><b>Blockstream</b><span>主链高度、费率估算、内存池</span></a><a href="https://mempool.space/docs/api/rest" target="_blank" rel="noreferrer"><b>mempool.space</b><span>费率与区块高度备用源</span></a><a href="https://github.com/Blockchair/Blockchair.Support/blob/master/API_DOCUMENTATION_EN.md" target="_blank" rel="noreferrer"><b>Blockchair</b><span>高度与内存池备用源</span></a><a href="https://open.longbridge.com/docs/cli/derivatives/option" target="_blank" rel="noreferrer"><b>Longbridge</b><span>IBIT 期权静态快照</span></a><a href="https://bybit-exchange.github.io/docs/v5/market/tickers" target="_blank" rel="noreferrer"><b>Bybit</b><span>免费 BTC 期权 Gamma 与 OI</span></a><a href="https://farside.co.uk/bitcoin-etf-flow-all-data/" target="_blank" rel="noreferrer"><b>Farside · BTC</b><span>美国现货 BTC ETF 资金流</span></a><a href="https://farside.co.uk/ethereum-etf-flow-all-data/" target="_blank" rel="noreferrer"><b>Farside · ETH</b><span>美国现货 ETH ETF 资金流</span></a><a href="https://defillama.com/docs/api" target="_blank" rel="noreferrer"><b>DefiLlama</b><span>TVL 与稳定币供给</span></a></div>
+    </section>
+  </main>
+
+  <footer><b>BTC CAPITAL PULSE</b><span>公开数据研究终端 · 不构成投资建议</span><span>数据状态与来源见各模块</span></footer>
+  <script src="./deployment.js"></script>
+  <script src="./data.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>

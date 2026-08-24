@@ -1,0 +1,18 @@
+{
+  "name": "btc-capital-pulse-local",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node scripts/start-local.mjs",
+    "serve": "node server.mjs",
+    "update": "node scripts/run-update.mjs --trigger=manual",
+    "build:pages": "node scripts/build-pages.mjs",
+    "validate:pages": "node scripts/validate-pages.mjs",
+    "validate": "node scripts/validate-static-data.mjs",
+    "check:live": "node scripts/check-live-services.mjs",
+    "schedule": "node scripts/manage-schedule.mjs status"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
