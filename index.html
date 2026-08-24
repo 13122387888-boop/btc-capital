@@ -2,14 +2,14 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="description" content="BTC Capital Pulse — 免费公开数据驱动的比特币资金、行情、链上与衍生品仪表盘" />
   <title>BTC Capital Pulse · 资本脉搏终端</title>
   <link rel="stylesheet" href="./styles.css" />
   <link rel="stylesheet" href="./enhancements.css" />
 </head>
 <body>
-  <aside class="rail" aria-label="数据分区导航">
+  <aside class="rail" id="site-navigation" aria-label="数据分区导航">
     <a class="rail-brand" href="#overview" aria-label="BTC Capital Pulse 首页"><span>₿</span><b>CAPITAL<br>PULSE</b></a>
     <nav>
       <a class="active" href="#overview"><i>01</i><span>市场总览<small>Overview</small></span></a>
@@ -24,9 +24,10 @@
     </nav>
     <div class="rail-foot"><span class="pulse-dot"></span><b id="rail-status">正在读取公开数据</b><small id="rail-mode-note">零密钥 · 本地缓存</small></div>
   </aside>
+  <button class="nav-scrim" id="nav-scrim" type="button" aria-label="关闭导航" tabindex="-1"></button>
 
   <header class="topbar">
-    <button class="mobile-menu" id="mobile-menu" aria-label="打开导航" aria-expanded="false">☰</button>
+    <button class="mobile-menu" id="mobile-menu" type="button" aria-label="打开导航" aria-controls="site-navigation" aria-expanded="false">☰</button>
     <div class="ticker" aria-live="polite">
       <span>BTC <b id="ticker-btc">—</b> <i id="ticker-btc-change">—</i></span>
       <span>ETH <b id="ticker-eth">—</b> <i id="ticker-eth-change">—</i></span>
@@ -143,7 +144,7 @@
     <section class="section" id="seasonality">
       <div class="section-head"><div><p class="section-code">06 / SEASONALITY</p><h2>历史上哪些月份更强？</h2><p>按年份横向比较每月、季度和全年回报，颜色越深代表涨跌幅越大。</p></div><span class="state-badge static" id="seasonality-static-state">DAILY CLOSE · —</span></div>
       <div class="insight" id="seasonality-insight"><b>先看结论</b><span>正在计算历史月份胜率与平均回报…</span></div>
-      <article class="panel heatmap-panel"><div class="heatmap-wrap" id="seasonality-heatmap"></div><div class="definition"><b>口径</b> 月回报 = 当月最后一个 BTC/USDT 日收盘价 ÷ 上月最后一个日收盘价 − 1；季度须有 3 个完整月、全年须有 12 个完整月，否则显示“—”。带 * 的 2026 年 8 月为截至 8 月 23 日的 MTD，仅展示、不纳入历史均值和胜率。<a href="https://www.gate.com/docs/developers/apiv4/en/#market-candlesticks" target="_blank" rel="noreferrer">来源：Gate.io Public API · 截至 2026-08-23 ↗</a></div></article>
+      <article class="panel heatmap-panel"><p class="mobile-scroll-hint" aria-hidden="true">← 左右滑动看季度/全年，上下滑动看年份 →</p><div class="heatmap-wrap" id="seasonality-heatmap" role="region" aria-label="历史年份、月份与季度回报矩阵，可横向和纵向滚动" tabindex="0"></div><div class="definition"><b>口径</b> 月回报 = 当月最后一个 BTC/USDT 日收盘价 ÷ 上月最后一个日收盘价 − 1；季度须有 3 个完整月、全年须有 12 个完整月，否则显示“—”。带 * 的 2026 年 8 月为截至 8 月 23 日的 MTD，仅展示、不纳入历史均值和胜率。<a href="https://www.gate.com/docs/developers/apiv4/en/#market-candlesticks" target="_blank" rel="noreferrer">来源：Gate.io Public API · 截至 2026-08-23 ↗</a></div></article>
     </section>
 
     <section class="section" id="defi">

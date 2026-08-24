@@ -813,3 +813,432 @@
     display: none;
   }
 }
+
+/* Mobile reading and touch pass */
+.nav-scrim,
+.mobile-scroll-hint {
+  display: none;
+}
+
+.panel-title > div,
+.section-head > div,
+.gamma-meta,
+.chart-panel-actions,
+.health-row-title {
+  min-width: 0;
+}
+
+.definition,
+.panel-title h3,
+.panel-title > div > span,
+.module-updated,
+.gamma-summary span,
+.health-source > * {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 920px) {
+  .rail {
+    width: min(300px, 86vw);
+    padding-top: max(22px, env(safe-area-inset-top));
+    padding-bottom: max(22px, env(safe-area-inset-bottom));
+    padding-left: max(18px, env(safe-area-inset-left));
+  }
+
+  .nav-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 19;
+    border: 0;
+    background: rgba(0, 0, 0, .62);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .2s ease;
+  }
+
+  body.nav-open {
+    overflow: hidden;
+  }
+
+  body.nav-open .nav-scrim {
+    display: block;
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .rail nav a {
+    min-height: 50px;
+  }
+}
+
+@media (max-width: 620px) {
+  html {
+    scroll-padding-top: 72px;
+  }
+
+  body {
+    overflow-x: hidden;
+  }
+
+  main {
+    width: calc(100vw - 24px);
+  }
+
+  .topbar {
+    height: 58px;
+    gap: 9px;
+    padding-right: max(12px, env(safe-area-inset-right));
+    padding-left: max(12px, env(safe-area-inset-left));
+  }
+
+  .mobile-menu {
+    display: grid;
+    flex: 0 0 44px;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    place-items: center;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: #0b0e0c;
+    cursor: pointer;
+    font-size: 20px;
+    line-height: 1;
+  }
+
+  .mobile-menu:focus-visible,
+  .heatmap-wrap:focus-visible {
+    outline: 2px solid var(--gold);
+    outline-offset: 2px;
+  }
+
+  .ticker {
+    flex: 1 1 auto;
+    gap: 10px;
+  }
+
+  .ticker span {
+    font-size: 12px;
+  }
+
+  .update-state {
+    flex: 0 0 12px;
+    width: 12px;
+  }
+
+  .update-state #update-time {
+    display: none;
+  }
+
+  .section {
+    padding: 48px 0;
+  }
+
+  .hero {
+    padding-top: 44px;
+  }
+
+  .hero-grid {
+    gap: 30px;
+    margin-top: 25px;
+  }
+
+  .hero-copy h1 {
+    font-size: clamp(39px, 12.2vw, 46px);
+    line-height: 1.08;
+  }
+
+  .lead {
+    margin-top: 22px;
+    font-size: 15px;
+    line-height: 1.78;
+  }
+
+  .fundamental-points {
+    gap: 6px;
+    margin-top: 18px;
+  }
+
+  .fundamental-points span {
+    padding: 10px;
+    font-size: 12px;
+  }
+
+  .fundamental-points b {
+    font-size: 16px;
+  }
+
+  .trust-row {
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 18px;
+  }
+
+  .trust-row span {
+    min-height: 34px;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .price-hero {
+    padding-top: 28px;
+  }
+
+  .hero-price {
+    font-size: clamp(38px, 12vw, 48px);
+  }
+
+  .section-head h2 {
+    font-size: clamp(28px, 8.5vw, 34px);
+    line-height: 1.22;
+  }
+
+  .section-head p:not(.section-code) {
+    font-size: 15px;
+    line-height: 1.75;
+  }
+
+  .panel-title {
+    gap: 12px;
+    padding: 18px;
+  }
+
+  .panel-title h3 {
+    font-size: 19px;
+    line-height: 1.35;
+  }
+
+  .insight {
+    gap: 10px;
+    margin-bottom: 18px;
+    padding: 13px 14px;
+    font-size: 14px;
+  }
+
+  .today-brief-head,
+  .today-brief-grid > div {
+    padding-right: 17px;
+    padding-left: 17px;
+  }
+
+  .today-brief-grid p {
+    font-size: 14px;
+  }
+
+  .chart-panel-actions,
+  .chart-toolbar {
+    width: 100%;
+  }
+
+  .chart-toolbar {
+    align-items: center;
+    gap: 9px;
+  }
+
+  .range-tabs {
+    max-width: 100%;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+  }
+
+  .range-tabs button {
+    min-width: 44px;
+    min-height: 44px;
+    padding: 8px 9px;
+    touch-action: manipulation;
+    font-size: 11px;
+  }
+
+  .overlay-toggle,
+  .health-refresh {
+    min-height: 44px;
+    touch-action: manipulation;
+  }
+
+  .overlay-toggle input {
+    width: 18px;
+    height: 18px;
+  }
+
+  .chart-panel-actions .chart-toolbar::after {
+    content: "轻触或横划图表查看数值";
+    display: block;
+    width: 100%;
+    color: #697069;
+    font: 10px var(--mono);
+  }
+
+  .chart-stage canvas {
+    touch-action: pan-y;
+  }
+
+  #price-chart {
+    height: 160px;
+  }
+
+  #etf-rolling-chart {
+    height: 250px;
+  }
+
+  .chart-panel canvas,
+  .options-panel canvas {
+    height: 280px;
+  }
+
+  #fng-gauge {
+    height: 185px;
+  }
+
+  .fng-kline-panel canvas {
+    height: 315px;
+  }
+
+  #gamma-chart,
+  .gamma-stage {
+    min-height: 290px;
+    height: 290px;
+  }
+
+  #defi-chart {
+    height: 250px;
+  }
+
+  .chart-tooltip {
+    width: min(240px, calc(100% - 16px));
+    min-width: 0;
+    max-width: calc(100% - 16px);
+    font-size: 12px;
+  }
+
+  .chart-tooltip span {
+    gap: 10px;
+  }
+
+  .chart-tooltip strong {
+    overflow-wrap: anywhere;
+    text-align: right;
+  }
+
+  .gamma-meta .legend {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 7px 9px;
+    width: 100%;
+    line-height: 1.5;
+  }
+
+  .gamma-meta .legend i {
+    margin: 0 2px 0 0;
+  }
+
+  .gamma-summary span {
+    padding: 14px;
+    font-size: 12px;
+  }
+
+  .gamma-summary b {
+    font-size: 16px;
+    white-space: normal;
+  }
+
+  .gamma-key-insight {
+    gap: 10px;
+    padding: 12px 16px;
+  }
+
+  .mobile-scroll-hint {
+    display: block;
+    margin: 0;
+    padding: 11px 14px;
+    border-bottom: 1px solid var(--line);
+    color: #858c85;
+    background: rgba(233, 174, 63, .045);
+    font: 11px/1.5 var(--mono);
+    text-align: center;
+  }
+
+  .heatmap-wrap {
+    max-height: 68vh;
+    padding: 10px 8px 14px;
+    overflow: auto;
+    overscroll-behavior-inline: contain;
+    overscroll-behavior-block: auto;
+    scrollbar-width: thin;
+    scrollbar-color: #5f512e #0b0e0c;
+  }
+
+  .heat-head {
+    z-index: 2;
+  }
+
+  .heat-year {
+    z-index: 1;
+  }
+
+  .heat-head.heat-year {
+    z-index: 3;
+  }
+
+  .heatmap-grid {
+    min-width: 1100px;
+  }
+
+  .heat-cell {
+    min-height: 40px;
+    padding: 6px;
+  }
+
+  .health-source > *,
+  .health-row-title {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .panel > .definition,
+  .chart-panel > .definition,
+  .trend-panel > .definition,
+  .gamma-panel > .definition,
+  .heatmap-panel > .definition,
+  .health-panel > .definition {
+    margin-right: 18px;
+    margin-left: 18px;
+  }
+
+  footer {
+    padding-right: max(12px, env(safe-area-inset-right));
+    padding-bottom: max(24px, env(safe-area-inset-bottom));
+    padding-left: max(12px, env(safe-area-inset-left));
+  }
+}
+
+@media (max-width: 430px) {
+  .ticker span:nth-child(2) {
+    display: none;
+  }
+
+  .gamma-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .gamma-summary span:nth-child(n) {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .gamma-summary span:last-child {
+    border-bottom: 0;
+  }
+
+  .venue-summary {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rail,
+  .nav-scrim {
+    transition: none;
+  }
+}

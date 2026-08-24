@@ -526,34 +526,39 @@
     if (!canvas || !rows.length) return;
     ensureChartStage(canvas);
     const { ctx, width, height } = fitCanvas(canvas); ctx.clearRect(0, 0, width, height);
-    const pad = { l: 72, r: 24, t: 24, b: 42 }, plotW = width - pad.l - pad.r, plotH = height - pad.t - pad.b;
+    const pad = responsiveChartPad(canvas, { l: 72, r: 24, t: 24, b: 42 }, { l: 56, r: 14, t: 20, b: 38 }), plotW = width - pad.l - pad.r, plotH = height - pad.t - pad.b;
     const maxAbs = Math.max(1, ...rows.flatMap(row => [Math.abs(row.callGex), Math.abs(row.putGex), Math.abs(row.netGex)]));
-    const x = index => pad.l + (index + .5) / rows.length * plotW;
+    const minStrike = rows[0].strike, maxStrike = rows.at(-1).strike;
+    const x = row => pad.l + (row.strike - minStrike) / (maxStrike - minStrike || 1) * plotW;
     const y = value => pad.t + (maxAbs - value) / (maxAbs * 2) * plotH;
-    const zero = y(0), step = plotW / rows.length, barW = Math.max(2, Math.min(10, step * .32));
-    ctx.font = '12px "Microsoft YaHei"'; ctx.textBaseline = "middle";
+    const strikeXs = rows.map(x);
+    const strikeSteps = strikeXs.slice(1).map((value, index) => value - strikeXs[index]).filter(value => value > 0);
+    const minimumStep = strikeSteps.length ? Math.min(...strikeSteps) : plotW / Math.max(1, rows.length);
+    const zero = y(0), barW = Math.max(2, Math.min(10, minimumStep * .32));
+    ctx.font = chartCanvasFont(width); ctx.textBaseline = "middle";
     for (let index = 0; index <= 4; index++) {
       const value = maxAbs - index / 4 * maxAbs * 2, py = y(value);
       ctx.strokeStyle = index === 2 ? "#525852" : "#202520"; ctx.beginPath(); ctx.moveTo(pad.l, py); ctx.lineTo(width - pad.r, py); ctx.stroke();
       ctx.fillStyle = "#747b74"; ctx.textAlign = "right"; ctx.fillText(formatGex(value, true), pad.l - 9, py);
     }
-    rows.forEach((row, index) => {
-      const px = x(index), callY = y(row.callGex), putY = y(row.putGex);
+    rows.forEach(row => {
+      const px = x(row), callY = y(row.callGex), putY = y(row.putGex);
       ctx.fillStyle = "rgba(107,212,155,.78)"; ctx.fillRect(px - barW - 1, Math.min(callY, zero), barW, Math.max(1, Math.abs(zero - callY)));
       ctx.fillStyle = "rgba(233,121,111,.76)"; ctx.fillRect(px + 1, Math.min(putY, zero), barW, Math.max(1, Math.abs(zero - putY)));
     });
     ctx.beginPath();
-    rows.forEach((row, index) => index ? ctx.lineTo(x(index), y(row.netGex)) : ctx.moveTo(x(index), y(row.netGex)));
+    rows.forEach((row, index) => index ? ctx.lineTo(x(row), y(row.netGex)) : ctx.moveTo(x(row), y(row.netGex)));
     ctx.strokeStyle = "#e9ae3f"; ctx.lineWidth = 2; ctx.stroke();
     if (Number.isFinite(gammaSpot)) {
-      const minStrike = rows[0].strike, maxStrike = rows.at(-1).strike, spotX = pad.l + (gammaSpot - minStrike) / (maxStrike - minStrike || 1) * plotW;
+      const spotX = pad.l + (gammaSpot - minStrike) / (maxStrike - minStrike || 1) * plotW;
       if (spotX >= pad.l && spotX <= width - pad.r) {
         ctx.setLineDash([5, 5]); ctx.strokeStyle = "#d8d9d2"; ctx.beginPath(); ctx.moveTo(spotX, pad.t); ctx.lineTo(spotX, height - pad.b); ctx.stroke(); ctx.setLineDash([]);
         ctx.fillStyle = "#d8d9d2"; ctx.textAlign = "center"; ctx.textBaseline = "top"; ctx.fillText(`BTC $${gammaSpot.toFixed(0)}`, spotX, pad.t + 3);
       }
     }
     ctx.fillStyle = "#747b74"; ctx.textAlign = "center"; ctx.textBaseline = "top";
-    rows.forEach((row, index) => { if (index % Math.max(1, Math.ceil(rows.length / 8)) === 0 || index === rows.length - 1) ctx.fillText(`$${row.strike}`, x(index), height - pad.b + 11); });
+    const gammaTickTarget = width < 520 ? 5 : 8;
+    rows.forEach((row, index) => { if (index % Math.max(1, Math.ceil(rows.length / gammaTickTarget)) === 0 || index === rows.length - 1) ctx.fillText(`$${row.strike}`, x(row), height - pad.b + 11); });
     bindChartHover(canvas, {
       rows,
       value: row => row.strike,
@@ -946,6 +951,14 @@
 
   const RANGE_DAYS = { "7D": 7, "30D": 30, "90D": 90, "6M": 183, "1Y": 366, "2Y": 732 };
 
+  function responsiveChartPad(canvas, desktop, mobile) {
+    return canvas.getBoundingClientRect().width < 520 ? mobile : desktop;
+  }
+
+  function chartCanvasFont(width) {
+    return `${width < 520 ? 10 : 12}px "Microsoft YaHei"`;
+  }
+
   function dateValue(value) {
     const raw = String(value || "");
     const normalized = /^\d{4}-\d{2}$/.test(raw) ? `${raw}-01` : raw.slice(0, 10);
@@ -1003,9 +1016,9 @@
     const rows = filterChartRows(fullRows, chartState.options.range, row => row.date);
     if (rows.length < 2) return;
     const { ctx, width, height } = fitCanvas(canvas); ctx.clearRect(0, 0, width, height);
-    const pad = { l: 62, r: 58, t: 18, b: 36 }, plotH = height - pad.t - pad.b, scale = chartTimeScale(rows, row => row.date, pad.l, width - pad.r);
+    const pad = responsiveChartPad(canvas, { l: 62, r: 58, t: 18, b: 36 }, { l: 46, r: 38, t: 16, b: 34 }), plotH = height - pad.t - pad.b, scale = chartTimeScale(rows, row => row.date, pad.l, width - pad.r);
     const maxVolume = Math.max(1, ...rows.flatMap(row => [row.call, row.put])), maxRatio = Math.max(1.5, ...rows.map(row => row.ratio)), volumeY = value => pad.t + (maxVolume - value) / maxVolume * plotH, ratioY = value => pad.t + (maxRatio - value) / maxRatio * plotH;
-    ctx.font = '12px "Microsoft YaHei"'; ctx.textBaseline = "middle";
+    ctx.font = chartCanvasFont(width); ctx.textBaseline = "middle";
     for (let index = 0; index <= 4; index++) { const lineY = pad.t + index / 4 * plotH; ctx.strokeStyle = "#202520"; ctx.beginPath(); ctx.moveTo(pad.l, lineY); ctx.lineTo(width - pad.r, lineY); ctx.stroke(); ctx.fillStyle = "#747b74"; ctx.textAlign = "right"; ctx.fillText(compact(maxVolume - index / 4 * maxVolume), pad.l - 8, lineY); ctx.textAlign = "left"; ctx.fillText((maxRatio - index / 4 * maxRatio).toFixed(1), width - pad.r + 8, lineY); }
     const barWidth = Math.max(2, Math.min(9, (width - pad.l - pad.r) / rows.length * .28));
     rows.forEach(row => { const x = scale.x(row); ctx.fillStyle = "rgba(107,212,155,.76)"; ctx.fillRect(x - barWidth - 1, volumeY(row.call), barWidth, height - pad.b - volumeY(row.call)); ctx.fillStyle = "rgba(117,168,214,.75)"; ctx.fillRect(x + 1, volumeY(row.put), barWidth, height - pad.b - volumeY(row.put)); });
@@ -1033,10 +1046,10 @@
     if (rows.length < 2) return;
     const { ctx, width, height } = fitCanvas(canvas); ctx.clearRect(0, 0, width, height);
     const showPrice = chartState.defi.overlay && rows.some(row => Number.isFinite(row.right));
-    const pad = { l: 60, r: showPrice ? 64 : 24, t: 18, b: 34 }, plotH = height - pad.t - pad.b, scale = chartTimeScale(rows, row => row.label, pad.l, width - pad.r);
+    const pad = responsiveChartPad(canvas, { l: 60, r: showPrice ? 64 : 24, t: 18, b: 34 }, { l: 46, r: showPrice ? 42 : 18, t: 16, b: 32 }), plotH = height - pad.t - pad.b, scale = chartTimeScale(rows, row => row.label, pad.l, width - pad.r);
     const leftValues = rows.map(row => row.left), leftMinRaw = Math.min(...leftValues), leftMaxRaw = Math.max(...leftValues), leftExtra = (leftMaxRaw - leftMinRaw || Math.abs(leftMaxRaw) || 1) * .08, leftMin = leftMinRaw - leftExtra, leftMax = leftMaxRaw + leftExtra, leftY = value => pad.t + (leftMax - value) / (leftMax - leftMin || 1) * plotH;
     const rightValues = rows.map(row => row.right).filter(Number.isFinite), rightMinRaw = rightValues.length ? Math.min(...rightValues) : 0, rightMaxRaw = rightValues.length ? Math.max(...rightValues) : 1, rightExtra = (rightMaxRaw - rightMinRaw || Math.abs(rightMaxRaw) || 1) * .08, rightMin = rightMinRaw - rightExtra, rightMax = rightMaxRaw + rightExtra, rightY = value => pad.t + (rightMax - value) / (rightMax - rightMin || 1) * plotH;
-    ctx.font = '12px "Microsoft YaHei"'; ctx.textBaseline = "middle";
+    ctx.font = chartCanvasFont(width); ctx.textBaseline = "middle";
     for (let index = 0; index <= 4; index++) { const lineY = pad.t + index / 4 * plotH; ctx.strokeStyle = "#202520"; ctx.beginPath(); ctx.moveTo(pad.l, lineY); ctx.lineTo(width - pad.r, lineY); ctx.stroke(); ctx.fillStyle = "#747b74"; ctx.textAlign = "right"; ctx.fillText(options.leftFormat(leftMax - index / 4 * (leftMax - leftMin)), pad.l - 8, lineY); if (showPrice) { ctx.textAlign = "left"; ctx.fillText(options.rightFormat(rightMax - index / 4 * (rightMax - rightMin)), width - pad.r + 8, lineY); } }
     const drawSeries = (key, y, color) => { ctx.beginPath(); let started = false; rows.forEach(row => { if (!Number.isFinite(row[key])) { started = false; return; } if (started) ctx.lineTo(scale.x(row), y(row[key])); else { ctx.moveTo(scale.x(row), y(row[key])); started = true; } }); ctx.strokeStyle = color; ctx.lineWidth = 2.2; ctx.stroke(); };
     drawSeries("left", leftY, "#6bd49b"); if (showPrice) drawSeries("right", rightY, "#e9ae3f");
@@ -1181,10 +1194,10 @@
     if (rows.length < 2) return;
     const { ctx, width, height } = fitCanvas(canvas); ctx.clearRect(0, 0, width, height);
     const showPrice = chartState.etfCombo.overlay && rows.some(row => Number.isFinite(row.price));
-    const pad = { l: 58, r: showPrice ? 62 : 24, t: 18, b: 34 }, plotH = height - pad.t - pad.b, scale = chartTimeScale(rows, row => row.month, pad.l, width - pad.r);
+    const pad = responsiveChartPad(canvas, { l: 58, r: showPrice ? 62 : 24, t: 18, b: 34 }, { l: 46, r: showPrice ? 42 : 18, t: 16, b: 32 }), plotH = height - pad.t - pad.b, scale = chartTimeScale(rows, row => row.month, pad.l, width - pad.r);
     const flows = rows.map(row => row.flow), fMin = Math.min(0, ...flows), fMax = Math.max(0, ...flows), fSpan = fMax - fMin || 1, yf = value => pad.t + (fMax - value) / fSpan * plotH;
     const prices = rows.map(row => row.price).filter(Number.isFinite), pMinRaw = prices.length ? Math.min(...prices) : 0, pMaxRaw = prices.length ? Math.max(...prices) : 1, pExtra = (pMaxRaw - pMinRaw || Math.abs(pMaxRaw) || 1) * .1, pMin = pMinRaw - pExtra, pMax = pMaxRaw + pExtra, yp = value => pad.t + (pMax - value) / (pMax - pMin || 1) * plotH;
-    ctx.font = '12px "Microsoft YaHei"'; ctx.textBaseline = "middle";
+    ctx.font = chartCanvasFont(width); ctx.textBaseline = "middle";
     for (let index = 0; index <= 4; index++) {
       const lineY = pad.t + index / 4 * plotH, flowValue = fMax - index / 4 * fSpan;
       ctx.strokeStyle = "#202520"; ctx.beginPath(); ctx.moveTo(pad.l, lineY); ctx.lineTo(width - pad.r, lineY); ctx.stroke();
@@ -1218,15 +1231,23 @@
     if (candles.length < 2) return;
     const fngMap = new Map(fearGreedRows.map(row => [row.date, row.value]));
     const { ctx, width, height } = fitCanvas(canvas); ctx.clearRect(0, 0, width, height);
-    const showFng = chartState.fng.overlay, pad = { l: 68, r: showFng ? 58 : 24, t: 22, b: 38 }, plotH = height - pad.t - pad.b, scale = chartTimeScale(candles, row => row.date, pad.l, width - pad.r);
+    const showFng = chartState.fng.overlay, pad = responsiveChartPad(canvas, { l: 68, r: showFng ? 58 : 24, t: 22, b: 38 }, { l: 50, r: showFng ? 36 : 18, t: 18, b: 34 }), plotH = height - pad.t - pad.b, scale = chartTimeScale(candles, row => row.date, pad.l, width - pad.r);
     const pMinRaw = Math.min(...candles.map(row => row.low)), pMaxRaw = Math.max(...candles.map(row => row.high)), extra = (pMaxRaw - pMinRaw || pMaxRaw * .08) * .08, pMin = pMinRaw - extra, pMax = pMaxRaw + extra, py = value => pad.t + (pMax - value) / (pMax - pMin || 1) * plotH, fy = value => pad.t + (100 - value) / 100 * plotH;
     if (showFng) { ctx.fillStyle = "rgba(107,212,155,.035)"; ctx.fillRect(pad.l, fy(100), width - pad.l - pad.r, fy(76) - fy(100)); ctx.fillStyle = "rgba(233,121,111,.04)"; ctx.fillRect(pad.l, fy(24), width - pad.l - pad.r, fy(0) - fy(24)); }
-    ctx.font = '12px "Microsoft YaHei"'; ctx.textBaseline = "middle";
+    ctx.font = chartCanvasFont(width); ctx.textBaseline = "middle";
     for (let index = 0; index <= 4; index++) { const lineY = pad.t + index / 4 * plotH, price = pMax - index / 4 * (pMax - pMin); ctx.strokeStyle = "#202520"; ctx.beginPath(); ctx.moveTo(pad.l, lineY); ctx.lineTo(width - pad.r, lineY); ctx.stroke(); ctx.fillStyle = "#747b74"; ctx.textAlign = "right"; ctx.fillText(`$${Math.round(price / 1000)}k`, pad.l - 9, lineY); if (showFng) { ctx.textAlign = "left"; ctx.fillText(String(100 - index * 25), width - pad.r + 9, lineY); } }
-    const bodyWidth = Math.max(1.5, Math.min(8, (width - pad.l - pad.r) / candles.length * .55));
-    candles.forEach(candle => { const color = candle.close >= candle.open ? "#6bd49b" : "#e9796f", x = scale.x(candle); ctx.strokeStyle = color; ctx.beginPath(); ctx.moveTo(x, py(candle.high)); ctx.lineTo(x, py(candle.low)); ctx.stroke(); const top = py(Math.max(candle.open, candle.close)), bottom = py(Math.min(candle.open, candle.close)); ctx.fillStyle = color; ctx.fillRect(x - bodyWidth / 2, top, bodyWidth, Math.max(1.4, bottom - top)); });
+    const pixelsPerCandle = (width - pad.l - pad.r) / candles.length;
+    if (pixelsPerCandle < 2.2) {
+      ctx.beginPath();
+      candles.forEach((candle, index) => index ? ctx.lineTo(scale.x(candle), py(candle.close)) : ctx.moveTo(scale.x(candle), py(candle.close)));
+      ctx.strokeStyle = "#aeb3ad"; ctx.lineWidth = 1.4; ctx.stroke();
+    } else {
+      const bodyWidth = Math.max(1.5, Math.min(8, pixelsPerCandle * .55));
+      candles.forEach(candle => { const color = candle.close >= candle.open ? "#6bd49b" : "#e9796f", x = scale.x(candle); ctx.strokeStyle = color; ctx.beginPath(); ctx.moveTo(x, py(candle.high)); ctx.lineTo(x, py(candle.low)); ctx.stroke(); const top = py(Math.max(candle.open, candle.close)), bottom = py(Math.min(candle.open, candle.close)); ctx.fillStyle = color; ctx.fillRect(x - bodyWidth / 2, top, bodyWidth, Math.max(1.4, bottom - top)); });
+    }
     if (showFng) { ctx.beginPath(); let started = false; candles.forEach(candle => { const value = fngMap.get(candle.date); if (!Number.isFinite(value)) { started = false; return; } if (started) ctx.lineTo(scale.x(candle), fy(value)); else { ctx.moveTo(scale.x(candle), fy(value)); started = true; } }); ctx.strokeStyle = "#f1b84e"; ctx.lineWidth = 2.4; ctx.stroke(); }
-    ctx.textAlign = "center"; ctx.textBaseline = "top"; ctx.fillStyle = "#747b74"; candles.forEach((candle, index) => { if (index % Math.max(1, Math.ceil(candles.length / 7)) === 0 || index === candles.length - 1) ctx.fillText(candle.date.slice(5), scale.x(candle), height - pad.b + 11); });
+    const fngTickTarget = width < 520 ? 5 : 7;
+    ctx.textAlign = "center"; ctx.textBaseline = "top"; ctx.fillStyle = "#747b74"; candles.forEach((candle, index) => { if (index % Math.max(1, Math.ceil(candles.length / fngTickTarget)) === 0 || index === candles.length - 1) ctx.fillText(candle.date.slice(5), scale.x(candle), height - pad.b + 11); });
     bindChartHover(canvas, {
       rows: candles, value: row => dateValue(row.date), domain: [scale.minimum, scale.maximum], pad, title: row => row.date,
       lines: row => {
@@ -1271,7 +1292,9 @@
   function bindChartHover(canvas, config) {
     if (!canvas || !config?.rows?.length) return;
     const shell = ensureChartStage(canvas);
-    chartBindings.set(canvas, { ...config, ...shell, activeIndex: config.rows.length - 1, pinned: false });
+    shell.crosshair.hidden = true;
+    shell.tooltip.hidden = true;
+    chartBindings.set(canvas, { ...config, ...shell, activeIndex: config.rows.length - 1, pinned: false, touchStart: null, touchMoved: false });
     if (canvas.dataset.hoverBound === "true") return;
     canvas.dataset.hoverBound = "true";
 
@@ -1294,8 +1317,15 @@
       binding.crosshair.hidden = false;
       binding.tooltip.hidden = false;
       const tooltipWidth = binding.tooltip.offsetWidth || 190;
-      const left = position + tooltipWidth + 18 < canvasRect.width ? position + 10 : position - tooltipWidth - 10;
-      binding.tooltip.style.left = `${Math.max(8, left)}px`;
+      const preferredLeft = position + tooltipWidth + 18 < canvasRect.width ? position + 10 : position - tooltipWidth - 10;
+      const left = Math.max(8, Math.min(preferredLeft, canvasRect.width - tooltipWidth - 8));
+      binding.tooltip.style.left = `${left}px`;
+    };
+
+    const hideTooltip = binding => {
+      if (!binding) return;
+      binding.crosshair.hidden = true;
+      binding.tooltip.hidden = true;
     };
 
     const indexFromPointer = event => {
@@ -1312,27 +1342,61 @@
       return nearest;
     };
 
-    canvas.addEventListener("pointermove", event => showIndex(indexFromPointer(event)));
+    canvas.addEventListener("pointermove", event => {
+      const binding = chartBindings.get(canvas);
+      if (event.pointerType === "touch" && binding?.touchStart) {
+        const dx = event.clientX - binding.touchStart.x, dy = event.clientY - binding.touchStart.y;
+        if (Math.hypot(dx, dy) > 8) binding.touchMoved = true;
+        if (Math.abs(dx) > Math.abs(dy)) showIndex(indexFromPointer(event));
+        return;
+      }
+      showIndex(indexFromPointer(event));
+    });
     canvas.addEventListener("pointerdown", event => {
       const binding = chartBindings.get(canvas); if (!binding) return;
-      binding.pinned = event.pointerType === "touch" ? !binding.pinned : binding.pinned;
+      if (event.pointerType === "touch") {
+        binding.touchStart = { x: event.clientX, y: event.clientY };
+        binding.touchMoved = false;
+        return;
+      }
       showIndex(indexFromPointer(event));
+    });
+    canvas.addEventListener("pointerup", event => {
+      const binding = chartBindings.get(canvas);
+      if (event.pointerType !== "touch" || !binding?.touchStart) return;
+      const dx = event.clientX - binding.touchStart.x, dy = event.clientY - binding.touchStart.y;
+      const moved = binding.touchMoved || Math.hypot(dx, dy) > 8;
+      binding.touchStart = null;
+      binding.touchMoved = false;
+      if (moved) {
+        if (Math.abs(dx) > Math.abs(dy)) { binding.pinned = true; showIndex(indexFromPointer(event)); }
+        else if (!binding.pinned) hideTooltip(binding);
+        return;
+      }
+      if (binding.pinned) { binding.pinned = false; hideTooltip(binding); return; }
+      binding.pinned = true;
+      showIndex(indexFromPointer(event));
+    });
+    canvas.addEventListener("pointercancel", () => {
+      const binding = chartBindings.get(canvas); if (!binding) return;
+      binding.touchStart = null;
+      binding.touchMoved = false;
+      if (!binding.pinned) hideTooltip(binding);
     });
     canvas.addEventListener("pointerleave", () => {
       const binding = chartBindings.get(canvas);
       if (!binding || binding.pinned) return;
-      binding.crosshair.hidden = true;
-      binding.tooltip.hidden = true;
+      hideTooltip(binding);
     });
     canvas.addEventListener("focus", () => showIndex(chartBindings.get(canvas)?.activeIndex ?? 0));
     canvas.addEventListener("blur", () => {
       const binding = chartBindings.get(canvas); if (!binding || binding.pinned) return;
-      binding.crosshair.hidden = true; binding.tooltip.hidden = true;
+      hideTooltip(binding);
     });
     canvas.addEventListener("keydown", event => {
       if (event.key !== "ArrowLeft" && event.key !== "ArrowRight" && event.key !== "Escape") return;
       const binding = chartBindings.get(canvas); if (!binding) return;
-      if (event.key === "Escape") { binding.pinned = false; binding.crosshair.hidden = true; binding.tooltip.hidden = true; return; }
+      if (event.key === "Escape") { binding.pinned = false; hideTooltip(binding); return; }
       event.preventDefault();
       showIndex(binding.activeIndex + (event.key === "ArrowRight" ? 1 : -1));
     });
@@ -1412,12 +1476,12 @@
       ctx.fillStyle = "#747b74"; ctx.font = '13px "Microsoft YaHei"'; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText("ETF 历史覆盖不足，暂不能绘制所选范围", width / 2, height / 2); return;
     }
     const showBtc = chartState.etfRolling.overlay && rows.some(row => row.candle);
-    const pad = { l: 70, r: showBtc ? 62 : 24, t: 18, b: 36 }, plotH = height - pad.t - pad.b, scale = chartTimeScale(rows, row => row.date, pad.l, width - pad.r);
+    const pad = responsiveChartPad(canvas, { l: 70, r: showBtc ? 62 : 24, t: 18, b: 36 }, { l: 52, r: showBtc ? 42 : 18, t: 16, b: 34 }), plotH = height - pad.t - pad.b, scale = chartTimeScale(rows, row => row.date, pad.l, width - pad.r);
     const values = rows.flatMap(row => [row.roll5, row.roll20]).filter(Number.isFinite), minimum = Math.min(0, ...values), maximum = Math.max(0, ...values), span = maximum - minimum || 1;
     const y = value => pad.t + (maximum - value) / span * plotH;
     const priceValues = rows.flatMap(row => row.candle ? [row.candle.high, row.candle.low] : []).filter(Number.isFinite);
     const priceMin = priceValues.length ? Math.min(...priceValues) : 0, priceMax = priceValues.length ? Math.max(...priceValues) : 1, py = value => pad.t + (priceMax - value) / (priceMax - priceMin || 1) * plotH;
-    ctx.font = '12px "Microsoft YaHei"'; ctx.textBaseline = "middle";
+    ctx.font = chartCanvasFont(width); ctx.textBaseline = "middle";
     for (let index = 0; index <= 4; index++) {
       const lineY = pad.t + index / 4 * plotH, value = maximum - index / 4 * span;
       ctx.strokeStyle = "#202520"; ctx.beginPath(); ctx.moveTo(pad.l, lineY); ctx.lineTo(width - pad.r, lineY); ctx.stroke();
@@ -1426,13 +1490,23 @@
     }
     const zero = y(0); ctx.strokeStyle = "#596059"; ctx.beginPath(); ctx.moveTo(pad.l, zero); ctx.lineTo(width - pad.r, zero); ctx.stroke();
     if (showBtc) {
-      const bodyWidth = Math.max(2, Math.min(7, (width - pad.l - pad.r) / rows.length * .45));
-      rows.forEach(row => {
-        if (!row.candle) return;
-        const color = row.candle.close >= row.candle.open ? "rgba(107,212,155,.38)" : "rgba(233,121,111,.38)", x = scale.x(row);
-        ctx.strokeStyle = color; ctx.beginPath(); ctx.moveTo(x, py(row.candle.high)); ctx.lineTo(x, py(row.candle.low)); ctx.stroke();
-        ctx.fillStyle = color; const top = py(Math.max(row.candle.open, row.candle.close)), bottom = py(Math.min(row.candle.open, row.candle.close)); ctx.fillRect(x - bodyWidth / 2, top, bodyWidth, Math.max(1, bottom - top));
-      });
+      const pixelsPerCandle = (width - pad.l - pad.r) / rows.length;
+      if (pixelsPerCandle < 2.2) {
+        ctx.beginPath(); let started = false;
+        rows.forEach(row => {
+          if (!row.candle) { started = false; return; }
+          if (started) ctx.lineTo(scale.x(row), py(row.candle.close)); else { ctx.moveTo(scale.x(row), py(row.candle.close)); started = true; }
+        });
+        ctx.strokeStyle = "rgba(216,217,210,.55)"; ctx.lineWidth = 1.3; ctx.stroke();
+      } else {
+        const bodyWidth = Math.max(2, Math.min(7, pixelsPerCandle * .45));
+        rows.forEach(row => {
+          if (!row.candle) return;
+          const color = row.candle.close >= row.candle.open ? "rgba(107,212,155,.38)" : "rgba(233,121,111,.38)", x = scale.x(row);
+          ctx.strokeStyle = color; ctx.beginPath(); ctx.moveTo(x, py(row.candle.high)); ctx.lineTo(x, py(row.candle.low)); ctx.stroke();
+          ctx.fillStyle = color; const top = py(Math.max(row.candle.open, row.candle.close)), bottom = py(Math.min(row.candle.open, row.candle.close)); ctx.fillRect(x - bodyWidth / 2, top, bodyWidth, Math.max(1, bottom - top));
+        });
+      }
     }
     const drawSeries = (key, color) => { ctx.beginPath(); let started = false; rows.forEach(row => { if (!Number.isFinite(row[key])) { started = false; return; } if (started) ctx.lineTo(scale.x(row), y(row[key])); else { ctx.moveTo(scale.x(row), y(row[key])); started = true; } }); ctx.strokeStyle = color; ctx.lineWidth = 2.4; ctx.stroke(); };
     drawSeries("roll5", "#6bd49b"); drawSeries("roll20", "#e9ae3f");
@@ -1450,9 +1524,36 @@
 
   function setupNavigation() {
     const links = [...document.querySelectorAll(".rail nav a")]; const sections = links.map(a => document.querySelector(a.getAttribute("href"))).filter(Boolean);
+    const menu = $("mobile-menu"), scrim = $("nav-scrim");
+    const setOpen = (open, returnFocus = false) => {
+      document.body.classList.toggle("nav-open", open);
+      menu.setAttribute("aria-expanded", String(open));
+      menu.setAttribute("aria-label", open ? "关闭导航" : "打开导航");
+      menu.textContent = open ? "×" : "☰";
+      if (scrim) scrim.tabIndex = open ? 0 : -1;
+      if (open) requestAnimationFrame(() => links[0]?.focus({ preventScroll: true }));
+      else if (returnFocus) menu.focus({ preventScroll: true });
+    };
     const observer = new IntersectionObserver(entries => entries.forEach(entry => { if (!entry.isIntersecting) return; links.forEach(a => a.classList.toggle("active", a.getAttribute("href") === `#${entry.target.id}`)); }), { rootMargin: "-25% 0px -65%" });
-    sections.forEach(section => observer.observe(section)); links.forEach(a => a.addEventListener("click", () => document.body.classList.remove("nav-open")));
-    $("mobile-menu").addEventListener("click", () => { const open = document.body.classList.toggle("nav-open"); $("mobile-menu").setAttribute("aria-expanded", String(open)); });
+    sections.forEach(section => observer.observe(section)); links.forEach(a => a.addEventListener("click", () => setOpen(false)));
+    menu.addEventListener("click", () => setOpen(!document.body.classList.contains("nav-open")));
+    if (scrim) scrim.addEventListener("click", () => setOpen(false, true));
+    document.addEventListener("keydown", event => { if (event.key === "Escape" && document.body.classList.contains("nav-open")) setOpen(false, true); });
+    const desktopQuery = window.matchMedia("(min-width: 921px)");
+    desktopQuery.addEventListener?.("change", event => { if (event.matches) setOpen(false); });
+  }
+
+  function setupMobileChartDefaults() {
+    if (!window.matchMedia || !window.matchMedia("(max-width: 620px)").matches) return;
+    const defaults = { fng: "30D", defi: "6M" };
+    Object.entries(defaults).forEach(([chart, range]) => {
+      chartState[chart].range = range;
+      document.querySelectorAll(`[data-range-chart="${chart}"]`).forEach(button => {
+        const active = button.dataset.range === range;
+        button.classList.toggle("active", active);
+        button.setAttribute("aria-pressed", String(active));
+      });
+    });
   }
   function refreshMarketSectionState() {
     const states = [sourceStates.price, sourceStates.sentiment].filter(Boolean);
@@ -1488,13 +1589,19 @@
   }
 
   async function init() {
-    applyDeploymentLabels(); setupNavigation(); setupChartControls(); updateStaticLabels(); renderStatic(); renderOptions(); renderSeasonality();
+    applyDeploymentLabels(); setupNavigation(); setupMobileChartDefaults(); setupChartControls(); updateStaticLabels(); renderStatic(); renderOptions(); renderSeasonality();
     if ($("health-refresh")) $("health-refresh").addEventListener("click", loadHealth);
     await Promise.allSettled([loadMarketService(), loadSentimentService(), loadOnchainService(), loadDefiService(), loadGamma(), loadHealth()]);
     refreshMarketSectionState();
     finishStatus();
   }
-  let resizeTimer;
-  window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { drawEtfCombo(); drawEtfRolling(); if (lastPriceSeries.length) drawLine($("price-chart"), lastPriceSeries); if (Number.isFinite(currentFearGreed)) drawFearGreedGauge(currentFearGreed); drawFearGreedKline(); drawOptionsChart(); drawGammaChart(); if (defiTrendRows.length) drawDualLine($("defi-chart"), defiTrendRows, { leftFormat: v => `$${v.toFixed(0)}B`, rightFormat: v => `$${Math.round(v / 1000)}k` }); }, 160); });
+  let resizeTimer, viewportWidth = document.documentElement.clientWidth;
+  window.addEventListener("resize", () => {
+    const nextWidth = document.documentElement.clientWidth;
+    if (nextWidth === viewportWidth) return;
+    viewportWidth = nextWidth;
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => { drawEtfCombo(); drawEtfRolling(); if (lastPriceSeries.length) drawLine($("price-chart"), lastPriceSeries); if (Number.isFinite(currentFearGreed)) drawFearGreedGauge(currentFearGreed); drawFearGreedKline(); drawOptionsChart(); drawGammaChart(); if (defiTrendRows.length) drawDualLine($("defi-chart"), defiTrendRows, { leftFormat: v => `$${v.toFixed(0)}B`, rightFormat: v => `$${Math.round(v / 1000)}k` }); }, 160);
+  });
   init();
 })();
