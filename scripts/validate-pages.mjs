@@ -45,6 +45,12 @@ async function main() {
   const dataIndex = index.indexOf("./data.js");
   const appIndex = index.indexOf("./app.js");
   check(deploymentIndex >= 0 && deploymentIndex < dataIndex && dataIndex < appIndex, "脚本加载顺序必须是 deployment.js → data.js → app.js");
+  check(index.includes('id="market-state-title"') && index.includes('id="market-state-liquidity"'), "首页缺少今日市场状态组件");
+  check(!index.includes('id="today-brief-title"'), "首页仍残留旧版今日三句话组件");
+  check(index.includes('id="health-stale-count"') && !index.includes('id="health-cached-count"'), "健康状态主分类仍把缓存作为独立桶");
+  check(index.includes("Deribit") && !index.includes("BYBIT BTC OPTIONS"), "Gamma 页面来源未切换到 Deribit");
+  check(index.includes("±0.5%（含）") && index.includes("达到 ±2%") && index.includes("28–35 天"), "首页稳定币阈值边界或窗口口径不完整");
+  check(index.includes("5 / 20 个美国交易日") && index.includes("7 / 30 个自然日"), "首页资金与趋势时间口径未区分交易日和自然日");
 
   const sandbox = { window: {}, Object };
   vm.runInNewContext(await readFile(join(outputDir, "deployment.js"), "utf8"), sandbox, { filename: "deployment.js" });
@@ -66,6 +72,29 @@ async function main() {
   const health = JSON.parse(await readFile(join(outputDir, "snapshots", "health.json"), "utf8"));
   check(!("serverStartedAt" in (health.data || {})) && !("uptimeSeconds" in (health.data || {})), "health.json 不应公开临时服务器运行信息");
   check(health.data?.automation?.status === "github-actions", "health.json 未标明 GitHub Actions 自动化模式");
+  const healthSummary = health.data?.summary;
+  const healthModules = health.data?.modules || [];
+  const moduleIds = healthModules.map(module => module.id);
+  const expectedModuleIds = ["market", "sentiment", "onchain", "defi", "gamma"];
+  check(moduleIds.length === new Set(moduleIds).size, "health.json 存在重复模块 ID");
+  check(expectedModuleIds.every(id => moduleIds.includes(id)) && moduleIds.length === expectedModuleIds.length, "health.json 动态模块集合不完整");
+  const buckets = healthSummary?.health || {};
+  const healthTotal = [buckets.healthy, buckets.degraded, buckets.stale, buckets.unavailable].reduce((sum, value) => sum + Number(value || 0), 0);
+  check(Number.isInteger(healthSummary?.total) && healthSummary.total === healthTotal, "健康状态四个互斥桶之和必须等于模块总数");
+  const effectiveHealth = module => module.status === "unavailable" ? "unavailable" : module.overdue === true ? "stale" : module.status === "partial" ? "degraded" : "healthy";
+  const recomputedBuckets = Object.fromEntries(["healthy", "degraded", "stale", "unavailable"].map(key => [key, healthModules.filter(module => effectiveHealth(module) === key).length]));
+  check(["healthy", "degraded", "stale", "unavailable"].every(key => Number(buckets[key]) === recomputedBuckets[key]), "健康状态四桶必须可由 modules 独立重算");
+  check(healthSummary?.delivery && ["network", "freshCache", "staleCache"].every(key => Number.isFinite(Number(healthSummary.delivery[key]))), "健康状态缺少独立的取数方式统计");
+  const selectedHas = (module, status) => module.sources?.some(source => source.selected === true && source.status === status);
+  const recomputedDelivery = {
+    network: healthModules.filter(module => selectedHas(module, "live")).length,
+    freshCache: healthModules.filter(module => selectedHas(module, "cached")).length,
+    staleCache: healthModules.filter(module => selectedHas(module, "stale")).length,
+  };
+  check(Object.keys(recomputedDelivery).every(key => Number(healthSummary.delivery[key]) === recomputedDelivery[key]), "健康状态取数方式必须由 selected sources 重算");
+  const cachedUnion = healthModules.filter(module => selectedHas(module, "cached") || selectedHas(module, "stale")).length;
+  check(Number(healthSummary?.cached || 0) === cachedUnion && cachedUnion <= healthSummary.total, "健康状态缓存模块数必须是 selected cache 的模块并集");
+  check(healthModules.every(module => (module.sources || []).every(source => source.selected !== true || (Array.isArray(source.fields) && source.fields.length > 0))), "使用中的健康来源必须列出实际供给字段");
   process.stdout.write(`Pages 校验通过：${actualFiles.length} 个白名单文件，${snapshotNames.length} 个数据快照。\n`);
 }
 
