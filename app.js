@@ -1543,6 +1543,223 @@
     desktopQuery.addEventListener?.("change", event => { if (event.matches) setOpen(false); });
   }
 
+  function redrawMobileTabPanel(panel) {
+    if (!panel) return;
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      if (panel.querySelector("#etf-rolling-chart")) drawEtfRolling();
+      if (panel.querySelector("#etf-chart")) drawEtfCombo();
+      if (panel.querySelector("#fng-gauge") && Number.isFinite(currentFearGreed)) drawFearGreedGauge(currentFearGreed);
+      if (panel.querySelector("#fng-kline-chart")) drawFearGreedKline();
+      if (panel.querySelector("#options-chart")) drawOptionsChart();
+      if (panel.querySelector("#gamma-chart")) drawGammaChart();
+    }));
+  }
+
+  function setupMobileTabs() {
+    if (!window.matchMedia) return;
+    const mobileQuery = window.matchMedia("(max-width: 620px)");
+    document.querySelectorAll(".mobile-tabs[data-mobile-tabs]").forEach((tablist, groupIndex) => {
+      const group = tablist.dataset.mobileTabs;
+      const buttons = [...tablist.querySelectorAll("[data-mobile-tab-value]")];
+      const panels = [...document.querySelectorAll(`[data-mobile-tab-panel="${group}"]`)];
+      let activeValue = buttons.find(button => button.getAttribute("aria-selected") === "true")?.dataset.mobileTabValue || buttons[0]?.dataset.mobileTabValue;
+      if (!buttons.length || !panels.length || !activeValue) return;
+
+      const revealButton = button => {
+        const listRect = tablist.getBoundingClientRect(), buttonRect = button.getBoundingClientRect();
+        const leftDelta = buttonRect.left - listRect.left - 6, rightDelta = buttonRect.right - listRect.right + 6;
+        const delta = leftDelta < 0 ? leftDelta : rightDelta > 0 ? rightDelta : 0;
+        if (!delta) return;
+        const behavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+        if (typeof tablist.scrollBy === "function") tablist.scrollBy({ left: delta, behavior });
+        else tablist.scrollLeft += delta;
+      };
+
+      const activate = (value, moveFocus = false, reveal = false) => {
+        if (!buttons.some(button => button.dataset.mobileTabValue === value)) return;
+        activeValue = value;
+        buttons.forEach((button, index) => {
+          const active = button.dataset.mobileTabValue === value;
+          button.classList.toggle("active", active);
+          button.setAttribute("aria-selected", String(active));
+          button.tabIndex = active ? 0 : -1;
+          if (active) {
+            if (reveal) revealButton(button);
+            if (moveFocus) button.focus({ preventScroll: true });
+          }
+          button.id ||= `mobile-tab-${groupIndex}-${index}`;
+        });
+        panels.forEach((panel, index) => {
+          const active = panel.dataset.mobileTabValue === value;
+          panel.id ||= `mobile-panel-${groupIndex}-${index}`;
+          panel.classList.toggle("is-mobile-tab-active", active);
+          panel.classList.toggle("is-mobile-tab-inactive", !active);
+          panel.setAttribute("aria-hidden", String(!active));
+          if (active) redrawMobileTabPanel(panel);
+        });
+      };
+
+      const syncMode = () => {
+        if (!mobileQuery.matches) {
+          tablist.removeAttribute("role");
+          buttons.forEach(button => {
+            button.removeAttribute("role");
+            button.removeAttribute("aria-controls");
+            button.removeAttribute("tabindex");
+            button.classList.remove("active");
+          });
+          panels.forEach(panel => {
+            panel.classList.remove("is-mobile-tab-active", "is-mobile-tab-inactive");
+            panel.removeAttribute("role");
+            panel.removeAttribute("aria-hidden");
+            panel.removeAttribute("aria-labelledby");
+          });
+          return;
+        }
+        tablist.setAttribute("role", "tablist");
+        buttons.forEach((button, index) => {
+          const panel = panels.find(item => item.dataset.mobileTabValue === button.dataset.mobileTabValue);
+          button.setAttribute("role", "tab");
+          button.id ||= `mobile-tab-${groupIndex}-${index}`;
+          if (panel) {
+            panel.id ||= `mobile-panel-${groupIndex}-${panels.indexOf(panel)}`;
+            button.setAttribute("aria-controls", panel.id);
+            panel.setAttribute("role", "tabpanel");
+            panel.setAttribute("aria-labelledby", button.id);
+          }
+        });
+        activate(activeValue);
+      };
+
+      buttons.forEach(button => button.addEventListener("click", () => {
+        if (mobileQuery.matches) activate(button.dataset.mobileTabValue, false, true);
+      }));
+      tablist.addEventListener("keydown", event => {
+        if (!mobileQuery.matches || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+        event.preventDefault();
+        const currentIndex = Math.max(0, buttons.findIndex(button => button.dataset.mobileTabValue === activeValue));
+        const nextIndex = event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1 : (currentIndex + (event.key === "ArrowRight" ? 1 : -1) + buttons.length) % buttons.length;
+        activate(buttons[nextIndex].dataset.mobileTabValue, true, true);
+      });
+
+      panels.forEach(panel => {
+        const swipeSurface = group === "daily-brief" ? panel : panel.querySelector(":scope > .panel-title");
+        if (!swipeSurface) return;
+        let touchStart = null;
+        swipeSurface.addEventListener("touchstart", event => {
+          if (!mobileQuery.matches || event.touches.length !== 1) return;
+          const target = event.target instanceof Element ? event.target : null;
+          if (target?.closest("canvas, button, input, label, a, .chart-stage, .heatmap-wrap, .range-tabs, .chart-toolbar, .mobile-snap-region")) return;
+          const touch = event.touches[0];
+          if (touch.clientX <= 24 || touch.clientX >= window.innerWidth - 24) return;
+          touchStart = { x: touch.clientX, y: touch.clientY, at: Date.now() };
+        }, { passive: true });
+        swipeSurface.addEventListener("touchend", event => {
+          if (!mobileQuery.matches || !touchStart || !event.changedTouches.length) { touchStart = null; return; }
+          const touch = event.changedTouches[0], dx = touch.clientX - touchStart.x, dy = touch.clientY - touchStart.y;
+          const duration = Date.now() - touchStart.at;
+          touchStart = null;
+          if (duration > 700 || Math.abs(dx) < 52 || Math.abs(dx) < Math.abs(dy) * 1.25) return;
+          const currentIndex = Math.max(0, buttons.findIndex(button => button.dataset.mobileTabValue === activeValue));
+          const nextIndex = Math.max(0, Math.min(buttons.length - 1, currentIndex + (dx < 0 ? 1 : -1)));
+          if (nextIndex !== currentIndex) activate(buttons[nextIndex].dataset.mobileTabValue, false, true);
+        }, { passive: true });
+        swipeSurface.addEventListener("touchcancel", () => { touchStart = null; }, { passive: true });
+      });
+
+      syncMode();
+      if (typeof mobileQuery.addEventListener === "function") mobileQuery.addEventListener("change", syncMode);
+      else mobileQuery.addListener?.(syncMode);
+    });
+  }
+
+  function setupMobileDefinitions() {
+    if (!window.matchMedia) return;
+    const mobileQuery = window.matchMedia("(max-width: 620px)");
+    document.querySelectorAll(".definition").forEach((definition, index) => {
+      if (definition.previousElementSibling?.classList.contains("definition-toggle")) return;
+      const sourceText = definition.querySelector("a")?.textContent?.replace(/^(来源|主源|备用)：?\s*/, "").replace(/\s*↗\s*$/, "").trim() || "查看说明";
+      const shortSource = sourceText.length > 26 ? `${sourceText.slice(0, 25)}…` : sourceText;
+      const button = document.createElement("button");
+      const definitionId = definition.id || `mobile-definition-${index}`;
+      definition.id = definitionId;
+      button.type = "button";
+      button.className = "definition-toggle";
+      button.setAttribute("aria-controls", definitionId);
+      button.setAttribute("aria-expanded", "false");
+      button.innerHTML = `<span>口径与来源</span><small>${esc(shortSource)}</small><i aria-hidden="true">＋</i>`;
+      definition.classList.add("mobile-collapsible");
+      definition.before(button);
+      button.addEventListener("click", () => {
+        const expanded = !definition.classList.contains("is-expanded");
+        definition.classList.toggle("is-expanded", expanded);
+        button.classList.toggle("is-expanded", expanded);
+        button.setAttribute("aria-expanded", String(expanded));
+        button.querySelector("i").textContent = expanded ? "−" : "＋";
+        if (mobileQuery.matches) definition.setAttribute("aria-hidden", String(!expanded));
+      });
+      const syncMode = () => {
+        if (mobileQuery.matches) definition.setAttribute("aria-hidden", String(!definition.classList.contains("is-expanded")));
+        else definition.removeAttribute("aria-hidden");
+      };
+      syncMode();
+      if (typeof mobileQuery.addEventListener === "function") mobileQuery.addEventListener("change", syncMode);
+      else mobileQuery.addListener?.(syncMode);
+    });
+  }
+
+  function setupMobileCarousels() {
+    if (!window.matchMedia) return;
+    const mobileQuery = window.matchMedia("(max-width: 620px)");
+    const regions = document.querySelectorAll(".mobile-snap-cards, .etf-rolling-metrics, .chart-summary, .gamma-summary");
+    regions.forEach(region => {
+      region.classList.add("mobile-snap-region");
+      const syncMode = () => {
+        if (mobileQuery.matches) {
+          region.tabIndex = 0;
+          region.setAttribute("role", "region");
+          if (!region.hasAttribute("aria-label")) {
+            region.setAttribute("aria-label", region.dataset.mobileSnapLabel || "可左右滑动的指标卡");
+            region.dataset.mobileSnapAriaInjected = "true";
+          }
+        } else {
+          region.removeAttribute("tabindex");
+          region.removeAttribute("role");
+          if (region.dataset.mobileSnapAriaInjected === "true") {
+            region.removeAttribute("aria-label");
+            delete region.dataset.mobileSnapAriaInjected;
+          }
+        }
+      };
+      syncMode();
+      if (typeof mobileQuery.addEventListener === "function") mobileQuery.addEventListener("change", syncMode);
+      else mobileQuery.addListener?.(syncMode);
+    });
+  }
+
+  function setupMobileSections() {
+    if (!window.matchMedia) return;
+    const mobileQuery = window.matchMedia("(max-width: 620px)");
+    document.querySelectorAll("[data-mobile-section-toggle]").forEach(button => {
+      const key = button.dataset.mobileSectionToggle;
+      const body = document.querySelector(`[data-mobile-section-body="${key}"]`);
+      if (!body) return;
+      let expanded = button.getAttribute("aria-expanded") === "true";
+      const render = () => {
+        button.setAttribute("aria-expanded", String(expanded));
+        button.classList.toggle("is-expanded", expanded);
+        body.classList.toggle("is-expanded", expanded);
+        button.textContent = expanded ? button.dataset.labelOpen : button.dataset.labelClosed;
+        if (mobileQuery.matches) body.setAttribute("aria-hidden", String(!expanded));
+        else body.removeAttribute("aria-hidden");
+      };
+      button.addEventListener("click", () => { expanded = !expanded; render(); });
+      render();
+      if (typeof mobileQuery.addEventListener === "function") mobileQuery.addEventListener("change", render);
+      else mobileQuery.addListener?.(render);
+    });
+  }
+
   function setupMobileChartDefaults() {
     if (!window.matchMedia || !window.matchMedia("(max-width: 620px)").matches) return;
     const defaults = { fng: "30D", defi: "6M" };
@@ -1589,7 +1806,7 @@
   }
 
   async function init() {
-    applyDeploymentLabels(); setupNavigation(); setupMobileChartDefaults(); setupChartControls(); updateStaticLabels(); renderStatic(); renderOptions(); renderSeasonality();
+    applyDeploymentLabels(); setupNavigation(); setupMobileDefinitions(); setupMobileTabs(); setupMobileCarousels(); setupMobileSections(); setupMobileChartDefaults(); setupChartControls(); updateStaticLabels(); renderStatic(); renderOptions(); renderSeasonality();
     if ($("health-refresh")) $("health-refresh").addEventListener("click", loadHealth);
     await Promise.allSettled([loadMarketService(), loadSentimentService(), loadOnchainService(), loadDefiService(), loadGamma(), loadHealth()]);
     refreshMarketSectionState();

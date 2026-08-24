@@ -1242,3 +1242,315 @@
     transition: none;
   }
 }
+
+/* Mobile information compression: tabs, snap cards and on-demand methodology. */
+.mobile-tabs,
+.definition-toggle,
+.mobile-section-toggle {
+  display: none;
+}
+
+.mobile-section-body {
+  display: block;
+}
+
+@media (max-width: 620px) {
+  .section {
+    padding: 36px 0;
+  }
+
+  .hero {
+    padding-top: 34px;
+  }
+
+  .hero-grid {
+    gap: 24px;
+    margin-top: 20px;
+  }
+
+  .section-head {
+    gap: 12px;
+    margin-bottom: 17px;
+  }
+
+  .section-head h2 {
+    margin-top: 9px;
+    margin-bottom: 6px;
+  }
+
+  .section-head p:not(.section-code) {
+    line-height: 1.62;
+  }
+
+  .insight {
+    margin-bottom: 13px;
+    padding: 11px 12px;
+    line-height: 1.55;
+  }
+
+  .mobile-tabs {
+    display: flex;
+    gap: 4px;
+    margin: 0 0 12px;
+    padding: 4px;
+    overflow-x: auto;
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    background: #0b0e0c;
+    overscroll-behavior-inline: contain;
+    scroll-snap-type: x proximity;
+    scrollbar-width: none;
+  }
+
+  .mobile-tabs::-webkit-scrollbar,
+  .mobile-snap-region::-webkit-scrollbar {
+    display: none;
+  }
+
+  .mobile-tabs button {
+    flex: 1 0 auto;
+    min-width: 78px;
+    min-height: 44px;
+    padding: 9px 13px;
+    border: 0;
+    border-radius: 3px;
+    color: #9ba19a;
+    background: transparent;
+    scroll-snap-align: center;
+    touch-action: manipulation;
+    font: 600 13px "Microsoft YaHei", "微软雅黑", sans-serif;
+    white-space: nowrap;
+  }
+
+  .mobile-tabs button.active,
+  .mobile-tabs button[aria-selected="true"] {
+    color: #171207;
+    background: var(--gold);
+  }
+
+  .mobile-tabs button:focus-visible,
+  .mobile-snap-region:focus-visible,
+  .definition-toggle:focus-visible,
+  .mobile-section-toggle:focus-visible {
+    outline: 2px solid var(--gold);
+    outline-offset: 2px;
+  }
+
+  .mobile-tabs-compact {
+    margin: 0 12px 6px;
+  }
+
+  .today-brief-grid {
+    display: block;
+  }
+
+  .today-brief-grid > div {
+    min-height: 104px;
+    border-right: 0;
+    border-bottom: 0;
+    padding-top: 15px;
+    padding-bottom: 17px;
+  }
+
+  .is-mobile-tab-inactive {
+    display: none !important;
+  }
+
+  [data-mobile-tab-panel].is-mobile-tab-active {
+    margin-top: 0;
+    margin-bottom: 0;
+  }
+
+  .wide-grid,
+  .market-grid,
+  .health-grid {
+    gap: 0;
+  }
+
+  .mobile-snap-region {
+    display: flex !important;
+    gap: 12px;
+    padding: 1px 44px 9px 1px;
+    overflow-x: auto;
+    border: 0 !important;
+    overscroll-behavior-inline: contain;
+    scroll-padding-inline: 1px;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .overview-stats.mobile-snap-region {
+    margin-top: 28px;
+  }
+
+  .mobile-snap-cards.mobile-snap-region > article {
+    flex: 0 0 min(82vw, 330px);
+    min-width: 0;
+    min-height: 0;
+    padding: 18px !important;
+    border: 1px solid var(--line) !important;
+    background: linear-gradient(145deg, var(--surface), #0b0e0c);
+    scroll-snap-align: start;
+  }
+
+  .etf-rolling-metrics.mobile-snap-region {
+    min-height: 0;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+    padding: 12px 44px 12px 12px;
+  }
+
+  .etf-rolling-metrics.mobile-snap-region > div,
+  .chart-summary.mobile-snap-region > span,
+  .gamma-summary.mobile-snap-region > span {
+    flex: 0 0 min(72vw, 285px);
+    min-width: 0;
+    padding: 14px 16px;
+    border: 1px solid var(--line) !important;
+    background: rgba(255, 255, 255, .012);
+    scroll-snap-align: start;
+  }
+
+  .chart-summary.mobile-snap-region,
+  .gamma-summary.mobile-snap-region {
+    padding: 12px 44px 12px 12px;
+    border-top: 1px solid var(--line) !important;
+  }
+
+  .gamma-summary.mobile-snap-region b {
+    font-size: 16px;
+  }
+
+  .definition-toggle {
+    align-items: center;
+    justify-content: space-between;
+    gap: 9px;
+    width: 100%;
+    min-height: 44px;
+    margin-top: 12px;
+    padding: 10px 12px;
+    border: 1px solid var(--line-soft);
+    color: #b3b8b1;
+    background: rgba(255, 255, 255, .018);
+    touch-action: manipulation;
+    font: 600 13px "Microsoft YaHei", "微软雅黑", sans-serif;
+    text-align: left;
+  }
+
+  .definition-toggle small {
+    min-width: 0;
+    margin-left: auto;
+    overflow: hidden;
+    color: #8f7543;
+    font: 11px "Microsoft YaHei", "微软雅黑", sans-serif;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .definition-toggle i {
+    flex: 0 0 auto;
+    color: var(--gold);
+    font-style: normal;
+    font-size: 18px;
+  }
+
+  .definition.mobile-collapsible:not(.is-expanded) {
+    display: none !important;
+  }
+
+  .definition.mobile-collapsible.is-expanded {
+    display: block;
+    margin: 0 !important;
+    padding: 13px 12px 2px !important;
+    border-top: 0;
+    font-size: 13px;
+    line-height: 1.75;
+  }
+
+  .panel > .definition-toggle,
+  .chart-panel > .definition-toggle,
+  .trend-panel > .definition-toggle,
+  .gamma-panel > .definition-toggle,
+  .heatmap-panel > .definition-toggle,
+  .health-panel > .definition-toggle {
+    width: calc(100% - 28px);
+    margin: 0 14px 14px;
+  }
+
+  .panel > .definition.mobile-collapsible.is-expanded,
+  .chart-panel > .definition.mobile-collapsible.is-expanded,
+  .trend-panel > .definition.mobile-collapsible.is-expanded,
+  .gamma-panel > .definition.mobile-collapsible.is-expanded,
+  .heatmap-panel > .definition.mobile-collapsible.is-expanded,
+  .health-panel > .definition.mobile-collapsible.is-expanded {
+    margin: -14px 14px 14px !important;
+  }
+
+  .mobile-section-toggle {
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    min-height: 46px;
+    padding: 11px 14px;
+    border: 1px solid #5f512e;
+    color: var(--gold);
+    background: rgba(233, 174, 63, .045);
+    touch-action: manipulation;
+    font: 600 14px "Microsoft YaHei", "微软雅黑", sans-serif;
+  }
+
+  .mobile-section-toggle::after {
+    content: "＋";
+    margin-left: 9px;
+    font-size: 18px;
+  }
+
+  .mobile-section-toggle.is-expanded::after {
+    content: "−";
+  }
+
+  .mobile-section-body:not(.is-expanded) {
+    display: none;
+  }
+
+  .mobile-section-body.is-expanded {
+    display: block;
+    margin-top: 12px;
+  }
+
+  .source-directory {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .source-directory a {
+    padding: 13px 11px;
+  }
+
+  .etf-rolling-layout {
+    min-height: 0;
+  }
+
+  #etf-rolling-chart {
+    height: 230px;
+  }
+
+  .chart-panel canvas,
+  .options-panel canvas {
+    height: 255px;
+  }
+
+  .fng-kline-panel canvas {
+    height: 285px;
+  }
+
+  #gamma-chart,
+  .gamma-stage {
+    min-height: 270px;
+    height: 270px;
+  }
+
+  #defi-chart {
+    height: 230px;
+  }
+}
