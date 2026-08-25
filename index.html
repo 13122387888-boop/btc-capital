@@ -1,10 +1,11 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" class="no-js">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="description" content="BTC Capital Pulse — 免费公开数据驱动的比特币资金、行情、链上与衍生品仪表盘" />
   <title>BTC Capital Pulse · 资本脉搏终端</title>
+  <script>document.documentElement.classList.replace("no-js", "js");</script>
   <link rel="stylesheet" href="./styles.css" />
   <link rel="stylesheet" href="./enhancements.css" />
 </head>
@@ -44,53 +45,75 @@
       <div class="hero-grid">
         <div class="hero-copy">
           <p class="kicker">BITCOIN FUNDAMENTALS · MARKET INTELLIGENCE</p>
-          <h1>看见资金，<br><em>读懂周期。</em></h1>
-          <p class="lead"><b>Bitcoin 是一种总量上限 2,100 万枚、无需许可即可全球结算的数字资产。</b>它约每 10 分钟产生一个区块，并通过约四年一次的减半控制新增供给。本页把稀缺性、网络安全、机构需求和市场情绪放进同一套可追溯的数据框架。</p>
-          <div class="fundamental-points"><span><b>21M</b>固定供应上限</span><span><b>≈10 分钟</b>平均出块目标</span><span><b>4 年</b>约一次减半</span><span><b>24 × 7</b>全球市场</span></div>
-          <div class="trust-row"><span>无需登录</span><span>公开数据源</span><span>缓存状态透明</span></div>
+          <h1><span class="sr-only">比特币 BTC 资金与市场数据看板：</span>看见资金，<br><em>读懂周期。</em></h1>
         </div>
-        <article class="price-hero loading" id="price-hero">
-          <div class="panel-label"><span>BITCOIN / USD</span><b class="state-badge" data-source-state="price">LOADING</b></div>
+        <article class="price-hero loading" id="price-hero" aria-labelledby="price-hero-title">
+          <div class="panel-label"><h2 id="price-hero-title">BITCOIN / USD</h2><b class="state-badge" data-source-state="price">LOADING</b></div>
           <div class="hero-price" id="btc-price">—</div>
           <div class="hero-change" id="btc-change">等待实时行情</div>
-          <div class="chart-toolbar compact" data-chart-toolbar="price">
-            <div class="range-tabs" aria-label="BTC 价格图时间范围"><button type="button" data-range-chart="price" data-range="7D" aria-pressed="false">7D</button><button type="button" data-range-chart="price" data-range="30D" class="active" aria-pressed="true">30D</button><button type="button" data-range-chart="price" data-range="90D" aria-pressed="false">90D</button><button type="button" data-range-chart="price" data-range="1Y" aria-pressed="false">1Y</button></div>
-            <span class="hover-hint">悬停或用 ← → 查看</span>
+          <button class="mobile-section-toggle price-chart-toggle" type="button" data-mobile-section-toggle="price-chart" data-label-closed="查看 BTC 价格走势" data-label-open="收起 BTC 价格走势" aria-controls="mobile-price-chart" aria-expanded="false">查看 BTC 价格走势</button>
+          <div class="mobile-section-body price-chart-body" id="mobile-price-chart" data-mobile-section-body="price-chart">
+            <div class="chart-toolbar compact" data-chart-toolbar="price">
+              <div class="range-tabs" aria-label="BTC 价格图时间范围"><button type="button" data-range-chart="price" data-range="7D" aria-pressed="false">7D</button><button type="button" data-range-chart="price" data-range="30D" class="active" aria-pressed="true">30D</button><button type="button" data-range-chart="price" data-range="90D" aria-pressed="false">90D</button><button type="button" data-range-chart="price" data-range="1Y" aria-pressed="false">1Y</button></div>
+              <span class="hover-hint">悬停或用 ← → 查看</span>
+            </div>
+            <canvas id="price-chart" height="150" aria-label="BTC 价格走势"></canvas>
+            <div class="price-range"><span><i id="price-period">MONTHLY STATIC</i> LOW <b id="btc-low">—</b></span><span>HIGH <b id="btc-high">—</b></span></div>
+            <div class="definition"><b>口径</b> 当前价及 24H 涨跌优先取 Gate.io BTC/USDT 公开现货行情；CoinGecko 仅在交易所行情不可用时备用。折线按所选 7D / 30D / 90D / 1Y 范围使用已收盘日 K，悬停或键盘方向键可读取具体日期。<a href="https://www.gate.com/docs/developers/apiv4/en/#retrieve-ticker-information" target="_blank" rel="noreferrer">来源：Gate.io Public API ↗</a></div>
           </div>
-          <canvas id="price-chart" height="150" aria-label="BTC 价格走势"></canvas>
-          <div class="price-range"><span><i id="price-period">MONTHLY STATIC</i> LOW <b id="btc-low">—</b></span><span>HIGH <b id="btc-high">—</b></span></div>
-          <div class="definition"><b>口径</b> 当前价及 24H 涨跌优先取 Gate.io BTC/USDT 公开现货行情；CoinGecko 仅在交易所行情不可用时备用。折线按所选 7D / 30D / 90D / 1Y 范围使用已收盘日 K，悬停或键盘方向键可读取具体日期。<a href="https://www.gate.com/docs/developers/apiv4/en/#retrieve-ticker-information" target="_blank" rel="noreferrer">来源：Gate.io Public API ↗</a></div>
         </article>
       </div>
       <article class="market-state" aria-labelledby="market-state-title">
         <div class="market-state-head">
           <div><span>TODAY'S MARKET STATE</span><h2 id="market-state-title">今日市场状态</h2></div>
-          <p>四项独立观察，不加权、不合成总分；分歧本身就是信息。</p>
+          <div class="market-brief" id="market-brief" data-tone="neutral">
+            <span>30 秒市场简报</span>
+            <p id="market-brief-text" aria-live="polite" aria-atomic="true">正在读取资金、趋势、情绪与流动性数据…</p>
+            <small>只描述当前公开数据 · 不构成投资建议</small>
+          </div>
         </div>
-        <div class="market-state-grid">
+        <div class="market-state-grid" data-mobile-snap-label="今日市场四项状态" data-mobile-pager="market-state-page" aria-describedby="market-state-swipe-hint">
           <section class="market-state-card" id="market-state-capital" data-tone="neutral">
-            <div class="market-state-card-head"><span>资金</span><b id="market-state-capital-label">等待数据</b></div>
+            <div class="market-state-card-head"><h3>资金</h3><b id="market-state-capital-label">等待数据</b></div>
             <div class="market-state-values"><span>ETF 5交易日<strong id="market-state-capital-primary">—</strong></span><span>ETF 20交易日<strong id="market-state-capital-secondary">—</strong></span></div>
             <p id="market-state-capital-reason">正在计算 ETF 中短期资金方向。</p><small id="market-state-capital-asof">Farside / SoSoValue · 截止日待确认</small>
           </section>
           <section class="market-state-card" id="market-state-trend" data-tone="neutral">
-            <div class="market-state-card-head"><span>趋势</span><b id="market-state-trend-label">等待数据</b></div>
+            <div class="market-state-card-head"><h3>趋势</h3><b id="market-state-trend-label">等待数据</b></div>
             <div class="market-state-values"><span>BTC 7D<strong id="market-state-trend-primary">—</strong></span><span>BTC 30D<strong id="market-state-trend-secondary">—</strong></span></div>
             <p id="market-state-trend-reason">正在根据现价与已收盘日 K 判断趋势。</p><small id="market-state-trend-asof">Gate.io · 更新时间待确认</small>
           </section>
           <section class="market-state-card" id="market-state-sentiment" data-tone="neutral">
-            <div class="market-state-card-head"><span>情绪</span><b id="market-state-sentiment-label">等待数据</b></div>
+            <div class="market-state-card-head"><h3>情绪</h3><b id="market-state-sentiment-label">等待数据</b></div>
             <div class="market-state-values"><span>当前指数<strong id="market-state-sentiment-primary">—</strong></span><span>7日变化<strong id="market-state-sentiment-secondary">—</strong></span></div>
             <p id="market-state-sentiment-reason">正在读取恐慌与贪婪指数。</p><small id="market-state-sentiment-asof">Alternative.me · 截止日待确认</small>
           </section>
           <section class="market-state-card" id="market-state-liquidity" data-tone="neutral">
-            <div class="market-state-card-head"><span>流动性</span><b id="market-state-liquidity-label">等待数据</b></div>
+            <div class="market-state-card-head"><h3>流动性</h3><b id="market-state-liquidity-label">等待数据</b></div>
             <div class="market-state-values"><span>稳定币约30日<strong id="market-state-liquidity-primary">—</strong></span><span>当前供给<strong id="market-state-liquidity-secondary">—</strong></span></div>
             <p id="market-state-liquidity-reason">正在计算链上美元流动性方向。</p><small id="market-state-liquidity-asof">DefiLlama · 截止日待确认</small>
           </section>
         </div>
+        <div class="market-state-pagination" aria-label="市场状态卡片分页">
+          <span id="market-state-swipe-hint">← 左右滑动查看四项</span>
+          <div class="market-state-dots">
+            <button type="button" data-market-state-index="0" aria-label="查看第 1 项，共 4 项：资金" aria-current="true"></button>
+            <button type="button" data-market-state-index="1" aria-label="查看第 2 项，共 4 项：趋势"></button>
+            <button type="button" data-market-state-index="2" aria-label="查看第 3 项，共 4 项：情绪"></button>
+            <button type="button" data-market-state-index="3" aria-label="查看第 4 项，共 4 项：流动性"></button>
+          </div>
+          <output id="market-state-page" aria-live="polite" aria-atomic="true">1 / 4 · 资金</output>
+        </div>
         <details class="market-state-method"><summary>查看判定规则与来源</summary><p>资金按 ETF 最近 5 / 20 个美国交易日净流方向判断，截止日落后超过 2 个已完成工作日则暂停结论；趋势按 BTC 约 7 / 30 个自然日回报判断，±1% 为横盘带，历史锚点允许 1.5 天容差；情绪沿用 Alternative.me 的五档区间；稳定币约 30 日变化在 ±0.5%（含）视为基本持平，达到 ±2% 视为明显扩张或收缩，历史窗口须在 28–35 天内。相关来源缺失、过期或整页快照超过 6 小时时暂停方向结论；页面停留期间每分钟重判一次。每项独立显示原始读数和截止时间，不构成交易信号。</p></details>
       </article>
+      <button class="mobile-section-toggle fundamentals-toggle" type="button" data-mobile-section-toggle="bitcoin-fundamentals" data-label-closed="展开比特币基本面" data-label-open="收起比特币基本面" aria-controls="bitcoin-fundamentals" aria-expanded="false">展开比特币基本面</button>
+      <div class="hero-fundamentals mobile-section-body" id="bitcoin-fundamentals" data-mobile-section-body="bitcoin-fundamentals">
+        <p class="lead"><b>Bitcoin 是一种总量上限 2,100 万枚、无需许可即可全球结算的数字资产。</b>它约每 10 分钟产生一个区块，并通过约四年一次的减半控制新增供给。本页把稀缺性、网络安全、机构需求和市场情绪放进同一套可追溯的数据框架。</p>
+        <div class="hero-fundamental-meta">
+          <div class="fundamental-points"><span><b>21M</b>固定供应上限</span><span><b>≈10 分钟</b>平均出块目标</span><span><b>4 年</b>约一次减半</span><span><b>24 × 7</b>全球市场</span></div>
+          <div class="trust-row"><span>无需登录</span><span>公开数据源</span><span>缓存状态透明</span></div>
+        </div>
+      </div>
       <div class="overview-stats mobile-snap-cards" data-mobile-snap-label="市场总览核心指标">
         <article><span>BTC ETF 最新单日净流</span><strong id="stat-etf-last">—</strong><small id="stat-etf-date">截至 —</small><div class="definition"><b>口径</b> 美国现货 BTC ETF 当日各基金净申购赎回金额合计，单位百万美元。<a href="https://farside.co.uk/bitcoin-etf-flow-all-data/" target="_blank" rel="noreferrer">来源：Farside / 公开汇总 ↗</a></div></article>
         <article><span>BTC 市值占比</span><strong id="stat-dominance">—</strong><small>占加密总市值</small><div class="definition"><b>口径</b> BTC 市值 ÷ 全部加密资产总市值。<a href="https://docs.coingecko.com/reference/crypto-global" target="_blank" rel="noreferrer">来源：CoinGecko Global ↗</a></div></article>
