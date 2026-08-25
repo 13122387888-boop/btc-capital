@@ -46,6 +46,8 @@ async function main() {
   const appIndex = index.indexOf("./app.js");
   check(deploymentIndex >= 0 && deploymentIndex < dataIndex && dataIndex < appIndex, "脚本加载顺序必须是 deployment.js → data.js → app.js");
   check(index.includes('id="market-state-title"') && index.includes('id="market-state-liquidity"'), "首页缺少今日市场状态组件");
+  check(index.includes('id="market-brief-text"') && index.includes('data-mobile-pager="market-state-page"'), "首页缺少 30 秒市场简报或移动分页");
+  check(index.includes('data-mobile-section-body="bitcoin-fundamentals"') && index.includes('data-mobile-section-body="price-chart"'), "首页缺少移动端基本面或价格图折叠区");
   check(!index.includes('id="today-brief-title"'), "首页仍残留旧版今日三句话组件");
   check(index.includes('id="health-stale-count"') && !index.includes('id="health-cached-count"'), "健康状态主分类仍把缓存作为独立桶");
   check(index.includes("Deribit") && !index.includes("BYBIT BTC OPTIONS"), "Gamma 页面来源未切换到 Deribit");
