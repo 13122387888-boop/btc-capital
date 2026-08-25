@@ -1681,6 +1681,10 @@
     text-align: left;
   }
 
+  .js .definition-toggle {
+    display: flex;
+  }
+
   .definition-toggle small {
     min-width: 0;
     margin-left: auto;
@@ -1743,6 +1747,10 @@
     font: 600 14px "Microsoft YaHei", "微软雅黑", sans-serif;
   }
 
+  .js .mobile-section-toggle {
+    display: flex;
+  }
+
   .mobile-section-toggle::after {
     content: "＋";
     margin-left: 9px;
@@ -1753,7 +1761,7 @@
     content: "−";
   }
 
-  .mobile-section-body:not(.is-expanded) {
+  .js .mobile-section-body:not(.is-expanded) {
     display: none;
   }
 
@@ -1795,5 +1803,259 @@
 
   #defi-chart {
     height: 230px;
+  }
+}
+
+/* Mobile-first overview: current price, a plain-language brief, then four swipe cards. */
+.sr-only {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+.panel-label > h2 {
+  margin: 0;
+  color: #727872;
+  font: 10px var(--mono);
+  letter-spacing: .14em;
+}
+
+.hero-grid {
+  align-items: start;
+}
+
+.market-brief {
+  flex: 0 1 680px;
+  max-width: 680px;
+  padding-left: 16px;
+  border-left: 3px solid #515852;
+}
+
+.market-brief[data-tone="positive"] { border-left-color: var(--green); }
+.market-brief[data-tone="negative"] { border-left-color: var(--red); }
+.market-brief[data-tone="mixed"] { border-left-color: var(--gold); }
+
+.market-brief > span {
+  display: block;
+  margin-bottom: 5px;
+  font-size: 10px;
+}
+
+.market-state-head .market-brief > p {
+  max-width: none;
+  color: #c6cbc4;
+  font-size: 14px;
+  line-height: 1.65;
+  text-align: left;
+}
+
+.market-brief > small {
+  display: block;
+  margin-top: 5px;
+  color: #606760;
+  font-size: 10px;
+}
+
+.market-state-card-head h3 {
+  margin: 0;
+  color: #777f78;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.market-state-pagination {
+  display: none;
+}
+
+.hero-fundamentals.mobile-section-body {
+  display: grid;
+  grid-template-columns: minmax(0, .95fr) minmax(0, 1.05fr);
+  gap: 6vw;
+  align-items: start;
+  margin-top: 28px;
+  padding-top: 24px;
+  border-top: 1px solid var(--line);
+}
+
+.hero-fundamentals .lead {
+  max-width: none;
+  margin: 0;
+}
+
+.hero-fundamentals .fundamental-points {
+  margin-top: 0;
+}
+
+.hero-fundamentals .trust-row {
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+
+@media (max-width: 620px) {
+  .hero-grid {
+    gap: 17px;
+    margin-top: 16px;
+  }
+
+  .hero-copy h1 {
+    font-size: clamp(32px, 9.7vw, 38px);
+    line-height: 1.07;
+  }
+
+  .hero-copy .kicker {
+    margin-bottom: 11px;
+    font-size: 10px;
+    line-height: 1.45;
+  }
+
+  .price-hero {
+    padding-top: 20px;
+  }
+
+  .hero-price {
+    margin-top: 15px;
+    margin-bottom: 8px;
+    font-size: clamp(40px, 12vw, 48px);
+  }
+
+  .hero-change {
+    font-size: 12px;
+    line-height: 1.55;
+  }
+
+  .price-chart-toggle {
+    margin-top: 15px;
+  }
+
+  .price-chart-body.mobile-section-body.is-expanded {
+    margin-top: 14px;
+  }
+
+  .market-state {
+    margin-top: 18px;
+  }
+
+  .market-state-head {
+    gap: 12px;
+    padding: 15px;
+  }
+
+  .market-state-head h2 {
+    font-size: 20px;
+  }
+
+  .market-brief {
+    flex: 0 0 auto;
+    width: 100%;
+    max-width: none;
+    padding: 11px 12px;
+    border-top: 1px solid var(--line-soft);
+    border-left-width: 3px;
+    background: rgba(255, 255, 255, .016);
+  }
+
+  .market-state-head .market-brief > p {
+    font-size: 14px;
+    line-height: 1.68;
+  }
+
+  .market-state-grid.mobile-snap-region {
+    padding: 1px 44px 9px 1px;
+  }
+
+  .market-state-card-head h3 {
+    font-size: 13px;
+  }
+
+  .market-state-pagination {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    min-height: 72px;
+    padding: 5px 12px 7px;
+    border-top: 1px solid var(--line-soft);
+    color: #777f78;
+    background: rgba(0, 0, 0, .12);
+    font: 11px var(--mono);
+  }
+
+  .market-state-pagination > output {
+    color: #b6bbb4;
+    white-space: nowrap;
+  }
+
+  .market-state-dots {
+    grid-column: 1 / -1;
+    display: flex;
+    justify-content: center;
+    min-height: 44px;
+  }
+
+  .market-state-dots button {
+    position: relative;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+
+  .market-state-dots button::before {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 7px;
+    height: 7px;
+    border: 1px solid #747b74;
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    background: transparent;
+  }
+
+  .market-state-dots button.active::before,
+  .market-state-dots button[aria-current="true"]::before {
+    border-color: var(--gold);
+    background: var(--gold);
+    box-shadow: 0 0 8px rgba(233, 174, 63, .4);
+  }
+
+  .market-state-dots button:focus-visible {
+    outline: 2px solid var(--gold);
+    outline-offset: -4px;
+  }
+
+  .fundamentals-toggle {
+    margin-top: 18px;
+  }
+
+  .hero-fundamentals.mobile-section-body.is-expanded {
+    display: block;
+    margin-top: 12px;
+    padding: 16px 14px;
+    border: 1px solid var(--line);
+    background: rgba(255, 255, 255, .012);
+  }
+
+  .hero-fundamentals .lead {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.75;
+  }
+
+  .hero-fundamentals .fundamental-points {
+    margin-top: 16px;
+  }
+
+  .overview-stats.mobile-snap-region {
+    margin-top: 24px;
   }
 }
