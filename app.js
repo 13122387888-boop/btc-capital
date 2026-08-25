@@ -32,6 +32,7 @@
   let etfRollingRows = [];
   let currentEtf5d = null;
   let currentEtf20d = null;
+  const todayMarketModels = {};
   const moduleUpdatedAt = {};
   const marketInputMeta = {
     price: { missing: false, stale: false, fetchedAt: null, targetSeconds: 15 * 60 },
@@ -630,6 +631,7 @@
   }
 
   function setMarketStateCard(key, model) {
+    todayMarketModels[key] = { ...model };
     const card = $(`market-state-${key}`);
     if (!card) return;
     card.dataset.tone = model.tone || "neutral";
@@ -639,6 +641,31 @@
     $(`market-state-${key}-secondary`).textContent = model.secondary;
     $(`market-state-${key}-reason`).textContent = model.reason;
     $(`market-state-${key}-asof`).textContent = model.asOf;
+  }
+
+  function renderMarketBrief() {
+    const brief = $("market-brief"), text = $("market-brief-text");
+    if (!brief || !text) return;
+    const items = [
+      ["capital", "ETF 资金"],
+      ["trend", "BTC 趋势"],
+      ["sentiment", "市场情绪"],
+      ["liquidity", "稳定币供给"]
+    ];
+    const models = items.map(([key, title]) => ({ key, title, ...(todayMarketModels[key] || {}) }));
+    if (models.some(model => !model.label)) return;
+
+    const nextText = models.every(model => model.dataState === "pending")
+      ? "资金、趋势、情绪与流动性正在加载，暂不生成市场简报。"
+      : `${models.map(model => `${model.title}：${model.label}`).join("；")}；四项独立观察，不合成总分。`;
+    if (text.textContent !== nextText) text.textContent = nextText;
+
+    const directional = models.filter(model => model.key !== "sentiment" && !["pending", "error", "stale"].includes(model.dataState));
+    const tones = directional.map(model => model.tone).filter(tone => tone && tone !== "neutral");
+    const hasPositive = tones.includes("positive"), hasNegative = tones.includes("negative"), hasMixed = tones.includes("mixed");
+    brief.dataset.tone = hasMixed || (hasPositive && hasNegative) ? "mixed"
+      : tones.filter(tone => tone === "positive").length >= 2 ? "positive"
+        : tones.filter(tone => tone === "negative").length >= 2 ? "negative" : "neutral";
   }
 
   function trendReturn(days) {
@@ -786,6 +813,7 @@
             : windowReady ? `${liquidity.text} 供给变化不等于资金一定买入 BTC。${marketDeliveryNote(liquidityState)}` : "历史窗口不在 28–35 天内，暂不推断月度方向。",
       asOf: `DefiLlama · ${currentStableAsOf ? `截至 ${currentStableAsOf}` : "截止日待确认"}`
     });
+    renderMarketBrief();
   }
 
   function clearGammaValues() {
@@ -1735,23 +1763,38 @@
 
   function setupNavigation() {
     const links = [...document.querySelectorAll(".rail nav a")]; const sections = links.map(a => document.querySelector(a.getAttribute("href"))).filter(Boolean);
-    const menu = $("mobile-menu"), scrim = $("nav-scrim");
+    const menu = $("mobile-menu"), scrim = $("nav-scrim"), rail = $("site-navigation");
+    const desktopQuery = window.matchMedia("(min-width: 921px)");
     const setOpen = (open, returnFocus = false) => {
       document.body.classList.toggle("nav-open", open);
       menu.setAttribute("aria-expanded", String(open));
       menu.setAttribute("aria-label", open ? "关闭导航" : "打开导航");
       menu.textContent = open ? "×" : "☰";
       if (scrim) scrim.tabIndex = open ? 0 : -1;
-      if (open) requestAnimationFrame(() => links[0]?.focus({ preventScroll: true }));
-      else if (returnFocus) menu.focus({ preventScroll: true });
+      if (open) {
+        if (rail) { rail.inert = false; rail.removeAttribute("aria-hidden"); }
+        requestAnimationFrame(() => links[0]?.focus({ preventScroll: true }));
+      } else {
+        if (returnFocus) menu.focus({ preventScroll: true });
+        if (rail && !desktopQuery.matches) { rail.inert = true; rail.setAttribute("aria-hidden", "true"); }
+        else if (rail) { rail.inert = false; rail.removeAttribute("aria-hidden"); }
+      }
     };
     const observer = new IntersectionObserver(entries => entries.forEach(entry => { if (!entry.isIntersecting) return; links.forEach(a => a.classList.toggle("active", a.getAttribute("href") === `#${entry.target.id}`)); }), { rootMargin: "-25% 0px -65%" });
-    sections.forEach(section => observer.observe(section)); links.forEach(a => a.addEventListener("click", () => setOpen(false)));
+    sections.forEach(section => observer.observe(section));
+    links.forEach(a => a.addEventListener("click", () => {
+      if (!desktopQuery.matches) {
+        const target = document.querySelector(a.getAttribute("href"));
+        const heading = target?.querySelector("h1, h2");
+        if (heading) { heading.tabIndex = -1; heading.focus({ preventScroll: true }); }
+      }
+      setOpen(false);
+    }));
     menu.addEventListener("click", () => setOpen(!document.body.classList.contains("nav-open")));
     if (scrim) scrim.addEventListener("click", () => setOpen(false, true));
     document.addEventListener("keydown", event => { if (event.key === "Escape" && document.body.classList.contains("nav-open")) setOpen(false, true); });
-    const desktopQuery = window.matchMedia("(min-width: 921px)");
     desktopQuery.addEventListener?.("change", event => { if (event.matches) setOpen(false); });
+    setOpen(false);
   }
 
   function redrawMobileTabPanel(panel) {
@@ -1925,6 +1968,48 @@
     const regions = document.querySelectorAll(".mobile-snap-cards, .market-state-grid, .etf-rolling-metrics, .chart-summary, .gamma-summary");
     regions.forEach(region => {
       region.classList.add("mobile-snap-region");
+      const cards = [...region.children];
+      const page = region.dataset.mobilePager ? $(region.dataset.mobilePager) : null;
+      const pagination = page?.closest(".market-state-pagination") || null;
+      const dots = pagination ? [...pagination.querySelectorAll("[data-market-state-index]")] : [];
+      let currentIndex = 0, scrollFrame = 0;
+
+      const cardName = card => card.querySelector("h3")?.textContent?.trim()
+        || card.querySelector(":scope > span")?.textContent?.trim()
+        || `指标 ${cards.indexOf(card) + 1}`;
+      const nearestCardIndex = () => {
+        const regionLeft = region.getBoundingClientRect().left;
+        return cards.reduce((nearest, card, index) => {
+          const distance = Math.abs(card.getBoundingClientRect().left - regionLeft);
+          return distance < nearest.distance ? { index, distance } : nearest;
+        }, { index: 0, distance: Number.POSITIVE_INFINITY }).index;
+      };
+      const updatePager = (index = nearestCardIndex()) => {
+        if (!mobileQuery.matches || !page || !cards.length) return;
+        currentIndex = Math.max(0, Math.min(cards.length - 1, index));
+        const name = cardName(cards[currentIndex]);
+        const nextText = `${currentIndex + 1} / ${cards.length} · ${name}`;
+        if (page.textContent !== nextText) page.textContent = nextText;
+        dots.forEach((dot, dotIndex) => {
+          const active = dotIndex === currentIndex;
+          dot.classList.toggle("active", active);
+          if (active) dot.setAttribute("aria-current", "true");
+          else dot.removeAttribute("aria-current");
+        });
+      };
+      const schedulePager = () => {
+        if (!page || scrollFrame) return;
+        scrollFrame = requestAnimationFrame(() => { scrollFrame = 0; updatePager(); });
+      };
+      const scrollToCard = index => {
+        if (!mobileQuery.matches || !cards[index]) return;
+        const behavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+        const delta = cards[index].getBoundingClientRect().left - region.getBoundingClientRect().left;
+        if (typeof region.scrollBy === "function") region.scrollBy({ left: delta, behavior });
+        else region.scrollLeft += delta;
+        updatePager(index);
+      };
+
       const syncMode = () => {
         if (mobileQuery.matches) {
           region.tabIndex = 0;
@@ -1933,6 +2018,14 @@
             region.setAttribute("aria-label", region.dataset.mobileSnapLabel || "可左右滑动的指标卡");
             region.dataset.mobileSnapAriaInjected = "true";
           }
+          if (page) {
+            cards.forEach((card, index) => {
+              card.setAttribute("role", "group");
+              card.setAttribute("aria-roledescription", "卡片");
+              card.setAttribute("aria-label", `第 ${index + 1} 项，共 ${cards.length} 项：${cardName(card)}`);
+            });
+            requestAnimationFrame(() => updatePager());
+          }
         } else {
           region.removeAttribute("tabindex");
           region.removeAttribute("role");
@@ -1940,8 +2033,25 @@
             region.removeAttribute("aria-label");
             delete region.dataset.mobileSnapAriaInjected;
           }
+          if (page) cards.forEach(card => {
+            card.removeAttribute("role");
+            card.removeAttribute("aria-roledescription");
+            card.removeAttribute("aria-label");
+          });
         }
       };
+      if (page) {
+        region.addEventListener("scroll", schedulePager, { passive: true });
+        region.addEventListener("keydown", event => {
+          if (!mobileQuery.matches || event.target !== region || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+          event.preventDefault();
+          const nextIndex = event.key === "Home" ? 0 : event.key === "End" ? cards.length - 1
+            : Math.max(0, Math.min(cards.length - 1, currentIndex + (event.key === "ArrowRight" ? 1 : -1)));
+          scrollToCard(nextIndex);
+        });
+        dots.forEach(dot => dot.addEventListener("click", () => scrollToCard(Number(dot.dataset.marketStateIndex))));
+        window.addEventListener("resize", schedulePager, { passive: true });
+      }
       syncMode();
       if (typeof mobileQuery.addEventListener === "function") mobileQuery.addEventListener("change", syncMode);
       else mobileQuery.addListener?.(syncMode);
@@ -1963,8 +2073,15 @@
         button.textContent = expanded ? button.dataset.labelOpen : button.dataset.labelClosed;
         if (mobileQuery.matches) body.setAttribute("aria-hidden", String(!expanded));
         else body.removeAttribute("aria-hidden");
+        if (mobileQuery.matches && expanded && body.querySelector("#price-chart") && lastPriceSeries.length) {
+          requestAnimationFrame(() => requestAnimationFrame(() => drawLine($("price-chart"), lastPriceSeries)));
+        }
       };
-      button.addEventListener("click", () => { expanded = !expanded; render(); });
+      button.addEventListener("click", () => {
+        expanded = !expanded;
+        if (!expanded && body.contains(document.activeElement)) button.focus({ preventScroll: true });
+        render();
+      });
       render();
       if (typeof mobileQuery.addEventListener === "function") mobileQuery.addEventListener("change", render);
       else mobileQuery.addListener?.(render);
