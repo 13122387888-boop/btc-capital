@@ -2059,3 +2059,75 @@
     margin-top: 24px;
   }
 }
+/* Shared Capital Pulse asset switcher — kept local to the rail so the BTC shell stays intact. */
+.cp-asset-switcher {
+  padding: 12px 9px;
+  border-bottom: 1px solid var(--line);
+}
+
+.cp-asset-switcher > small {
+  display: block;
+  margin-bottom: 8px;
+  color: #747b74;
+  font: 9px var(--mono);
+  letter-spacing: .11em;
+}
+
+.cp-asset-switcher > div {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+}
+
+.cp-asset-switcher a {
+  min-width: 0;
+  padding: 7px 8px;
+  border: 1px solid transparent;
+  color: #747b74;
+  text-decoration: none;
+}
+
+.cp-asset-switcher a b,
+.cp-asset-switcher a span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cp-asset-switcher a b {
+  font: 600 10px var(--mono);
+}
+
+.cp-asset-switcher a span {
+  margin-top: 3px;
+  font-size: 9px;
+}
+
+.cp-asset-switcher a:hover,
+.cp-asset-switcher a.active {
+  border-color: #554521;
+  background: rgba(233, 174, 63, .065);
+  color: var(--ink);
+}
+
+.cp-asset-switcher a.active b {
+  color: var(--gold);
+}
+
+.cp-asset-switcher + nav {
+  padding-top: 10px;
+}
+
+@media (max-height: 760px) and (min-width: 921px) {
+  .rail { padding-top: 14px; padding-bottom: 14px; }
+  .rail-brand { height: 50px; padding-bottom: 10px; }
+  .cp-asset-switcher { padding-block: 8px; }
+  .cp-asset-switcher > small { display: none; }
+  .cp-asset-switcher a { padding-block: 5px; }
+  .cp-asset-switcher a span { display: none; }
+  .rail nav { gap: 1px; }
+  .rail nav a { padding-top: 6px; padding-bottom: 6px; }
+  .rail nav small, .rail-foot small { display: none; }
+  .rail-foot { padding-top: 10px; padding-bottom: 6px; }
+}
