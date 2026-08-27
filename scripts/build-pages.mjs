@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { copyFile, mkdir, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -105,7 +105,7 @@ function publicSnapshotPayload(name, payload, generatedAt) {
       checkedAt: generatedAt,
       automation: {
         scheduleEnabled: true,
-        scheduleTime: "每 2 小时",
+        scheduleTime: "每小时",
         status: "github-actions",
         trigger: process.env.GITHUB_EVENT_NAME || "local-pages-build",
         lastAttemptAt: generatedAt,
@@ -148,6 +148,13 @@ async function main() {
   await rm(TEMP_DIR, { recursive: true, force: true });
   await mkdir(join(TEMP_DIR, "snapshots"), { recursive: true });
   await copyStaticFiles(TEMP_DIR);
+  const assetVersion = encodeURIComponent(generatedAt);
+  const indexPath = join(TEMP_DIR, "index.html");
+  let versionedIndex = await readFile(indexPath, "utf8");
+  for (const asset of ["styles.css", "enhancements.css", "deployment.js", "data.js", "app.js"]) {
+    versionedIndex = versionedIndex.replace(`./${asset}`, `./${asset}?v=${assetVersion}`);
+  }
+  await writeFile(indexPath, versionedIndex, "utf8");
 
   const endpointConfig = Object.fromEntries(
     [...SNAPSHOTS, ["health", "/api/health"]].map(([name]) => [name, `./snapshots/${name}.json`]),
