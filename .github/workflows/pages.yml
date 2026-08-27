@@ -4,8 +4,8 @@ on:
   push:
     branches: [main]
   schedule:
-    # UTC；北京时间每天 01:23、03:23……23:23，避开整点拥堵。
-    - cron: "23 */2 * * *"
+    # UTC；每小时第 37 分钟刷新，避开整点拥堵并降低漏跑后过期的概率。
+    - cron: "37 * * * *"
   workflow_dispatch:
 
 permissions:
