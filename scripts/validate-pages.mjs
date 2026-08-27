@@ -41,6 +41,8 @@ async function main() {
   check(!missing.length, `Pages 产物缺少文件：${missing.join(", ")}`);
 
   const index = await readFile(join(outputDir, "index.html"), "utf8");
+  const app = await readFile(join(outputDir, "app.js"), "utf8");
+  const workflow = await readFile(join(projectDir, ".github", "workflows", "pages.yml"), "utf8");
   const deploymentIndex = index.indexOf("./deployment.js");
   const dataIndex = index.indexOf("./data.js");
   const appIndex = index.indexOf("./app.js");
@@ -53,6 +55,9 @@ async function main() {
   check(index.includes("Deribit") && !index.includes("BYBIT BTC OPTIONS"), "Gamma 页面来源未切换到 Deribit");
   check(index.includes("±0.5%（含）") && index.includes("达到 ±2%") && index.includes("28–35 天"), "首页稳定币阈值边界或窗口口径不完整");
   check(index.includes("5 / 20 个美国交易日") && index.includes("7 / 30 个自然日"), "首页资金与趋势时间口径未区分交易日和自然日");
+  check(["styles.css", "enhancements.css", "deployment.js", "data.js", "app.js"].every(asset => index.includes(`./${asset}?v=`)), "Pages 静态资源缺少构建版本号");
+  check(app.includes("snapshotRefreshIntervalMs") && app.includes("reloadForNewerSnapshot") && app.includes("./snapshots/manifest.json") && app.includes('document.addEventListener("visibilitychange"') && app.includes('window.addEventListener("pageshow"'), "Pages 快照页面缺少自动续取与移动端恢复刷新");
+  check(workflow.includes('cron: "37 * * * *"'), "Pages 定时刷新未配置为每小时错峰运行");
 
   const sandbox = { window: {}, Object };
   vm.runInNewContext(await readFile(join(outputDir, "deployment.js"), "utf8"), sandbox, { filename: "deployment.js" });
