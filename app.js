@@ -5,6 +5,8 @@
   const deployment = window.PULSE_DEPLOYMENT || {};
   const isSnapshotMode = deployment.mode === "snapshot";
   const snapshotStaleAfterSeconds = Number.isFinite(Number(deployment.staleAfterSeconds)) ? Number(deployment.staleAfterSeconds) : 6 * 3600;
+  const snapshotRefreshIntervalMs = 5 * 60 * 1000;
+  let activeSnapshotGeneratedAt = deployment.generatedAt || "";
   const cachePrefix = "btc_pulse_v2_";
   const sourceStates = {};
   let lastPriceSeries = [];
@@ -75,8 +77,41 @@
   }
 
   function snapshotAgeSeconds() {
-    const timestamp = Date.parse(deployment.generatedAt || "");
+    const timestamp = Date.parse(activeSnapshotGeneratedAt || deployment.generatedAt || "");
     return Number.isFinite(timestamp) ? Math.max(0, (Date.now() - timestamp) / 1000) : null;
+  }
+
+  function recordSnapshotGeneration(payload) {
+    if (!isSnapshotMode) return;
+    const candidate = payload?.snapshot?.generatedAt || payload?.generatedAt || "";
+    const candidateTime = Date.parse(candidate);
+    const currentTime = Date.parse(activeSnapshotGeneratedAt || "");
+    if (Number.isFinite(candidateTime) && (!Number.isFinite(currentTime) || candidateTime > currentTime)) activeSnapshotGeneratedAt = candidate;
+  }
+
+  async function reloadForNewerSnapshot() {
+    if (!isSnapshotMode) return false;
+    try {
+      const response = await fetch("./snapshots/manifest.json", { cache: "no-store", headers: { accept: "application/json" } });
+      if (!response.ok) return false;
+      const manifest = await response.json();
+      const candidate = manifest?.generatedAt || "";
+      const candidateTime = Date.parse(candidate);
+      const currentTime = Date.parse(activeSnapshotGeneratedAt || deployment.generatedAt || "");
+      if (!Number.isFinite(candidateTime) || (Number.isFinite(currentTime) && candidateTime <= currentTime)) return false;
+      const reloadKey = `btc_pulse_snapshot_reload_${candidateTime}`;
+      if (sessionStorage.getItem(reloadKey)) {
+        activeSnapshotGeneratedAt = candidate;
+        return false;
+      }
+      sessionStorage.setItem(reloadKey, "1");
+      const nextUrl = new URL(window.location.href);
+      nextUrl.searchParams.set("snapshot", String(candidateTime));
+      window.location.replace(nextUrl.toString());
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   function isSnapshotStale() {
@@ -85,7 +120,7 @@
   }
 
   function currentModuleAge(module) {
-    const snapshotFallback = isSnapshotMode && module?.kind === "dynamic" ? deployment.generatedAt : "";
+    const snapshotFallback = isSnapshotMode && module?.kind === "dynamic" ? activeSnapshotGeneratedAt || deployment.generatedAt : "";
     const timestamp = Date.parse(module?.fetchedAt || snapshotFallback || "");
     return Number.isFinite(timestamp) ? Math.max(0, (Date.now() - timestamp) / 1000) : num(module?.ageSeconds);
   }
@@ -167,10 +202,14 @@
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const value = await response.json();
       if (value?.status === "unavailable") throw new Error("service unavailable");
+      recordSnapshotGeneration(value);
       cacheWrite(key, value);
       return { value, state: "live", cachedAt: null };
     } catch (error) {
-      if (cached && cached.value?.status !== "unavailable" && Date.now() - cached.at < ttl * 12) return { value: cached.value, state: "cached", cachedAt: cached.at };
+      if (cached && cached.value?.status !== "unavailable" && Date.now() - cached.at < ttl * 12) {
+        recordSnapshotGeneration(cached.value);
+        return { value: cached.value, state: "cached", cachedAt: cached.at };
+      }
       throw error;
     } finally { clearTimeout(timer); }
   }
@@ -2128,13 +2167,14 @@
     if (cached) parts.push(`${cached} 组缓存`);
     if (failed) parts.push(`${failed} 组不可用`);
     $("rail-status").textContent = parts.join(" · ") || "公开数据等待连接";
-    const displayTime = isSnapshotMode && deployment.generatedAt ? new Date(deployment.generatedAt) : new Date();
+    const displayTime = isSnapshotMode && (activeSnapshotGeneratedAt || deployment.generatedAt) ? new Date(activeSnapshotGeneratedAt || deployment.generatedAt) : new Date();
     $("update-time").textContent = `${isSnapshotMode ? "快照" : "更新"} ${displayTime.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}`;
     document.querySelector(".rail-foot .pulse-dot").classList.toggle("warn", failed > 0 || partial > 0 || isSnapshotStale());
   }
 
   async function init() {
     applyDeploymentLabels(); setupNavigation(); setupMobileDefinitions(); setupMobileTabs(); setupMobileCarousels(); setupMobileSections(); setupMobileChartDefaults(); setupChartControls(); updateStaticLabels(); renderStatic(); renderOptions(); renderSeasonality();
+    if (await reloadForNewerSnapshot()) return;
     if ($("health-refresh")) $("health-refresh").addEventListener("click", loadHealth);
     await Promise.allSettled([loadMarketService(), loadSentimentService(), loadOnchainService(), loadDefiService(), loadGamma(), loadHealth()]);
     refreshMarketSectionState();
@@ -2143,10 +2183,11 @@
   let resizeTimer, viewportWidth = document.documentElement.clientWidth;
   let backgroundRefreshInFlight = false, lastBackgroundRefreshAt = Date.now();
   async function refreshLiveDataInBackground() {
-    if (isSnapshotMode || backgroundRefreshInFlight) return;
+    if (backgroundRefreshInFlight) return;
     backgroundRefreshInFlight = true;
     lastBackgroundRefreshAt = Date.now();
     try {
+      if (await reloadForNewerSnapshot()) return;
       await Promise.allSettled([loadMarketService(), loadSentimentService(), loadOnchainService(), loadDefiService(), loadGamma(), loadHealth()]);
       refreshMarketSectionState();
       finishStatus();
@@ -2159,12 +2200,20 @@
     }
   }
   setInterval(() => {
-    if (!isSnapshotMode && Date.now() - lastBackgroundRefreshAt >= 15 * 60 * 1000) void refreshLiveDataInBackground();
+    const refreshInterval = isSnapshotMode ? snapshotRefreshIntervalMs : 15 * 60 * 1000;
+    if (Date.now() - lastBackgroundRefreshAt >= refreshInterval) void refreshLiveDataInBackground();
     else {
       renderTodayMarketState();
       if (latestHealthPayload) renderHealth(latestHealthPayload);
     }
   }, 60_000);
+  document.addEventListener("visibilitychange", () => {
+    const refreshInterval = isSnapshotMode ? snapshotRefreshIntervalMs : 15 * 60 * 1000;
+    if (document.visibilityState === "visible" && Date.now() - lastBackgroundRefreshAt >= refreshInterval) void refreshLiveDataInBackground();
+  });
+  window.addEventListener("pageshow", event => {
+    if (event.persisted) void refreshLiveDataInBackground();
+  });
   window.addEventListener("resize", () => {
     const nextWidth = document.documentElement.clientWidth;
     if (nextWidth === viewportWidth) return;
