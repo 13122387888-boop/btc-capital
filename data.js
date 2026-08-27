@@ -1,17 +1,17 @@
 window.PULSE_STATIC_DATA = {
-  "asOf": "2026-08-23",
+  "asOf": "2026-08-26",
   "sources": {
     "etfFlows": {
       "provider": "SoSoValue OpenAPI",
       "url": "https://sosovalue.gitbook.io/soso-value-api-doc/api-document/get-etf-historical-inflow-chart",
-      "asOf": "2026-08-21",
+      "asOf": "2026-08-26",
       "mode": "美国现货 BTC ETF totalNetInflow，USD 换算为百万美元；每次取 300 个交易日并与本地历史合并",
       "fallbackFor": "Farside Investors"
     },
     "ethEtfFlows": {
       "provider": "SoSoValue OpenAPI",
       "url": "https://sosovalue.gitbook.io/soso-value-api-doc/api-document/get-etf-historical-inflow-chart",
-      "asOf": "2026-08-21",
+      "asOf": "2026-08-26",
       "mode": "美国现货 ETH ETF totalNetInflow，USD 换算为百万美元；每次取 300 个交易日并与本地历史合并",
       "fallbackFor": "Farside Investors"
     },
@@ -156,7 +156,7 @@ window.PULSE_STATIC_DATA = {
     ],
     [
       "2026-08",
-      2381.7
+      3265.8
     ]
   ],
   "btcFlows": [
@@ -1359,6 +1359,18 @@ window.PULSE_STATIC_DATA = {
     [
       "2026-08-21",
       307.5
+    ],
+    [
+      "2026-08-24",
+      337.6
+    ],
+    [
+      "2026-08-25",
+      314.4
+    ],
+    [
+      "2026-08-26",
+      232.1
     ]
   ],
   "ethFlows": [
@@ -2561,6 +2573,18 @@ window.PULSE_STATIC_DATA = {
     [
       "2026-08-21",
       184.9
+    ],
+    [
+      "2026-08-24",
+      115.6
+    ],
+    [
+      "2026-08-25",
+      179.8
+    ],
+    [
+      "2026-08-26",
+      192.4
     ]
   ],
   "btcMonthly": [
