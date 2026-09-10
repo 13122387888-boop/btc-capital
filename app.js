@@ -1,7 +1,7 @@
 (() => {
   "use strict";
   const $ = id => document.getElementById(id);
-  const staticData = window.PULSE_STATIC_DATA;
+  let staticData = window.PULSE_STATIC_DATA;
   const deployment = window.PULSE_DEPLOYMENT || {};
   const isSnapshotMode = deployment.mode === "snapshot";
   const snapshotStaleAfterSeconds = Number.isFinite(Number(deployment.staleAfterSeconds)) ? Number(deployment.staleAfterSeconds) : 6 * 3600;
@@ -31,6 +31,9 @@
   let gammaChartRows = [];
   let gammaSpot = null;
   let gammaNetGex = null;
+  let gammaPayload = null;
+  let optionsPayload = null;
+  let activeStaticGeneratedAt = deployment.generatedAt || "";
   let etfRollingRows = [];
   let currentEtf5d = null;
   let currentEtf20d = null;
@@ -51,7 +54,7 @@
   });
   const chartState = {
     price: { range: "30D", overlay: true },
-    etfRolling: { range: "30D", overlay: false },
+    etfRolling: { range: "30D", overlay: true },
     etfCombo: { range: "1Y", overlay: true },
     fng: { range: "90D", overlay: true },
     options: { range: "30D", overlay: false },
@@ -97,18 +100,21 @@
       const manifest = await response.json();
       const candidate = manifest?.generatedAt || "";
       const candidateTime = Date.parse(candidate);
-      const currentTime = Date.parse(activeSnapshotGeneratedAt || deployment.generatedAt || "");
+      const currentTime = Date.parse(activeStaticGeneratedAt || deployment.generatedAt || "");
       if (!Number.isFinite(candidateTime) || (Number.isFinite(currentTime) && candidateTime <= currentTime)) return false;
-      const reloadKey = `btc_pulse_snapshot_reload_${candidateTime}`;
-      if (sessionStorage.getItem(reloadKey)) {
-        activeSnapshotGeneratedAt = candidate;
-        return false;
+      // Refresh data, never navigate: preserve tabs, expiry and reading position.
+      const staticResponse = await fetch(`./snapshots/static.json?v=${candidateTime}`, { cache: "no-store" });
+      if (staticResponse.ok) {
+        const next = await staticResponse.json();
+        if (next.generatedAt === candidate && Array.isArray(next.data?.btcFlows) && next.data?.sources) {
+          staticData = next.data;
+          window.PULSE_STATIC_DATA = staticData;
+          activeStaticGeneratedAt = candidate;
+          updateStaticLabels(); renderStatic(); renderOptions(); renderSeasonality();
+        }
       }
-      sessionStorage.setItem(reloadKey, "1");
-      const nextUrl = new URL(window.location.href);
-      nextUrl.searchParams.set("snapshot", String(candidateTime));
-      window.location.replace(nextUrl.toString());
-      return true;
+      activeSnapshotGeneratedAt = candidate;
+      return false;
     } catch {
       return false;
     }
@@ -771,7 +777,7 @@
     const capitalReady = Number.isFinite(currentEtf5d) && Number.isFinite(currentEtf20d);
     const completedWeekdays = completedUtcWeekdaysSince(etfAsOf);
     const capitalDateMissing = !Number.isFinite(completedWeekdays);
-    const capitalStale = Number.isFinite(completedWeekdays) && completedWeekdays > 2;
+    const capitalStale = isSnapshotStale() || Number.isFinite(completedWeekdays) && completedWeekdays > 2;
     let capitalLabel = "数据不足", capitalTone = "neutral", capitalReason = "ETF 5D 或 20D 窗口尚未形成，暂不判断资金方向。";
     if (capitalReady) {
       const shortDirection = Math.sign(currentEtf5d), mediumDirection = Math.sign(currentEtf20d);
@@ -782,7 +788,7 @@
       else { capitalLabel = "短期持平"; capitalReason = "ETF 5D 净流接近零，先观察 20D 方向。"; }
     }
     if (capitalDateMissing) { capitalLabel = "截止日无效"; capitalTone = "neutral"; capitalReason = "ETF 快照缺少有效截止日，暂不输出资金方向。"; }
-    else if (capitalStale) { capitalLabel = "快照已过期"; capitalTone = "neutral"; capitalReason = "ETF 快照已落后超过 2 个已完成工作日，仅保留历史读数，不输出资金方向。"; }
+    else if (capitalStale) { capitalLabel = "快照已过期"; capitalTone = "neutral"; capitalReason = "ETF 数据已超出更新窗口，仅保留历史读数，不输出资金方向。"; }
     setMarketStateCard("capital", {
       label: capitalLabel, tone: capitalTone,
       dataState: capitalDateMissing ? "error" : capitalStale ? "stale" : capitalReady ? "ready" : "error",
@@ -853,9 +859,11 @@
       asOf: `DefiLlama · ${currentStableAsOf ? `截至 ${currentStableAsOf}` : "截止日待确认"}`
     });
     renderMarketBrief();
+    window.dispatchEvent(new Event("pulse:update"));
   }
 
   function clearGammaValues() {
+    gammaPayload = null;
     gammaChartRows = [];
     gammaSpot = null;
     gammaNetGex = null;
@@ -871,9 +879,11 @@
   async function loadGamma() {
     const panel = document.querySelector(".gamma-panel"), state = $("gamma-state"), message = $("gamma-message");
     if (!panel || !state || !message) return;
+    optionsPayload = null;
     try {
       const result = await getJSON("serviceGammaV2", endpoints.gamma, 5 * 60 * 1000, 30_000);
       const data = result.value || {};
+      if (data.schemaVersion === 2 && data.venue === "Deribit" && Array.isArray(data.oiByStrike)) optionsPayload = data;
       const successAt = Date.parse(data.lastSuccessAt || data.asOf || ""), gammaAgeMs = Number.isFinite(successAt) ? Date.now() - successAt : NaN;
       const usable = data.schemaVersion === 2
         && data.venue === "Deribit"
@@ -885,6 +895,7 @@
         && Array.isArray(data.byStrike)
         && data.byStrike.length;
       if (!usable) throw new Error("invalid gamma payload");
+      gammaPayload = data;
       gammaChartRows = data.byStrike.map(row => ({ strike: num(row.strike), callGex: num(row.callGex), putGex: num(row.putGex), netGex: num(row.netGex) })).filter(row => [row.strike, row.callGex, row.putGex, row.netGex].every(Number.isFinite)).sort((a, b) => a.strike - b.strike);
       gammaSpot = num(data.spot);
       gammaNetGex = num(data.netGex);
@@ -1092,7 +1103,7 @@
       if (Number.isFinite(btcDominance)) { $("global-btc-dom").textContent = signed(btcDominance, "%", 1).replace("+", ""); $("stat-dominance").textContent = `${btcDominance.toFixed(1)}%`; }
       if (Number.isFinite(ethDominance)) $("global-eth-dom").textContent = signed(ethDominance, "%", 1).replace("+", "");
       if (Number.isFinite(num(global.activeCryptocurrencies))) $("global-coins").textContent = new Intl.NumberFormat("en-US").format(num(global.activeCryptocurrencies));
-      btcCandles = (Array.isArray(data.candles) ? data.candles : []).map(row => ({ date: String(row.date || "").slice(0, 10), open: num(row.open), high: num(row.high), low: num(row.low), close: num(row.close) })).filter(row => row.date && [row.open, row.high, row.low, row.close].every(Number.isFinite)).sort((a, b) => a.date.localeCompare(b.date));
+      btcCandles = (Array.isArray(data.candles) ? data.candles : []).map(row => ({ date: String(row.date || "").slice(0, 10), open: num(row.open), high: num(row.high), low: num(row.low), close: num(row.close), volume: num(row.volume), volumeUnit: row.volumeUnit || "BTC" })).filter(row => row.date && [row.open, row.high, row.low, row.close].every(Number.isFinite)).sort((a, b) => a.date.localeCompare(b.date));
       const marketSources = Array.isArray(payload.sources) ? payload.sources : [];
       const btcInputSources = marketSources.filter(source => source.selected === true && Array.isArray(source.fields) && source.fields.some(field => String(field).includes("BTC 价格") || String(field).includes("BTC 日 K")));
       const btcInputTimes = [currentBtcAsOf, currentBtcCandlesAsOf, ...btcInputSources.map(source => source.updatedAt)].map(value => Date.parse(value || "")).filter(Number.isFinite);
@@ -1494,7 +1505,7 @@
     const recent = rows.slice(-3), recentFlow = recent.reduce((sum, row) => sum + row.flow, 0), priced = recent.filter(row => Number.isFinite(row.price)), priceChange = priced.length > 1 ? (priced.at(-1).price / priced[0].price - 1) * 100 : null;
     let conclusion = `所选 ${rangeText(chartState.etfCombo.range)} 内 ETF 合计${total >= 0 ? "净流入" : "净流出"} ${flow(Math.abs(total)).replace("+", "")}`;
     if (Number.isFinite(priceChange)) conclusion += `；最近 3 个月 BTC ${priceChange >= 0 ? "上涨" : "下跌"} ${Math.abs(priceChange).toFixed(1)}%`;
-    $("etf-insight").querySelector("span").textContent = `${conclusion}。`;
+    $("etf-insight").querySelector("span").textContent = todayMarketModels.capital?.reason || `${conclusion}。`;
     bindChartHover(canvas, {
       rows, value: row => dateValue(row.month), domain: [scale.minimum, scale.maximum], pad, title: row => row.month,
       lines: row => [{ label: "ETF 月度净流", value: flow(row.flow) }, showPrice ? { label: "BTC 月末/当前", value: fmtUsd(row.price, 0) } : null]
@@ -2173,7 +2184,7 @@
   }
 
   async function init() {
-    applyDeploymentLabels(); setupNavigation(); setupMobileDefinitions(); setupMobileTabs(); setupMobileCarousels(); setupMobileSections(); setupMobileChartDefaults(); setupChartControls(); updateStaticLabels(); renderStatic(); renderOptions(); renderSeasonality();
+    applyDeploymentLabels(); setupMobileChartDefaults(); setupChartControls(); updateStaticLabels(); renderStatic(); renderOptions(); renderSeasonality();
     if (await reloadForNewerSnapshot()) return;
     if ($("health-refresh")) $("health-refresh").addEventListener("click", loadHealth);
     await Promise.allSettled([loadMarketService(), loadSentimentService(), loadOnchainService(), loadDefiService(), loadGamma(), loadHealth()]);
@@ -2220,6 +2231,12 @@
     viewportWidth = nextWidth;
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => { drawEtfCombo(); drawEtfRolling(); if (lastPriceSeries.length) drawLine($("price-chart"), lastPriceSeries); if (Number.isFinite(currentFearGreed)) drawFearGreedGauge(currentFearGreed); drawFearGreedKline(); drawOptionsChart(); drawGammaChart(); if (defiTrendRows.length) drawDualLine($("defi-chart"), defiTrendRows, { leftFormat: v => `$${v.toFixed(0)}B`, rightFormat: v => `$${Math.round(v / 1000)}k` }); }, 160);
+  });
+  window.PULSE_RUNTIME = Object.freeze({
+    read: () => ({ candles: btcCandles, price: latestBtcPrice, change: currentBtcChange, priceAsOf: currentBtcAsOf, candleAsOf: currentBtcCandlesAsOf, provider: currentBtcProvider, gamma: optionsPayload || gammaPayload, states: todayMarketModels, staticData, snapshotStale: isSnapshotStale(), sourceStates: { ...sourceStates }, generatedAt: activeSnapshotGeneratedAt }),
+    refresh: refreshLiveDataInBackground,
+    redraw: () => { drawEtfCombo(); drawEtfRolling(); drawFearGreedKline(); drawOptionsChart(); drawGammaChart(); if (Number.isFinite(currentFearGreed)) drawFearGreedGauge(currentFearGreed); if (defiTrendRows.length) drawDualLine($("defi-chart"), defiTrendRows, { leftFormat: v => `$${v.toFixed(0)}B`, rightFormat: v => `$${Math.round(v / 1000)}k` }); },
+    selectGamma: data => { gammaChartRows = (data?.byStrike || []).map(row => ({ ...row })); gammaSpot = num(data?.spot); gammaNetGex = num(data?.netGex); if (!gammaChartRows.length) { const canvas = $("gamma-chart"); canvas?.getContext("2d")?.clearRect(0, 0, canvas.width, canvas.height); if (canvas) chartBindings.delete(canvas); } else drawGammaChart(); }
   });
   init();
 })();

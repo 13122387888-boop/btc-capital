@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import vm from "node:vm";
 
 const PROJECT_DIR = fileURLToPath(new URL("../", import.meta.url));
 const OUTPUT_DIR = resolve(PROJECT_DIR, "dist-pages");
@@ -15,6 +16,9 @@ const STATIC_FILES = [
   "data.js",
   "styles.css",
   "enhancements.css",
+  "experience.js",
+  "experience-math.js",
+  "experience.css",
 ];
 
 const SNAPSHOTS = [
@@ -151,7 +155,7 @@ async function main() {
   const assetVersion = encodeURIComponent(generatedAt);
   const indexPath = join(TEMP_DIR, "index.html");
   let versionedIndex = await readFile(indexPath, "utf8");
-  for (const asset of ["styles.css", "enhancements.css", "deployment.js", "data.js", "app.js"]) {
+  for (const asset of ["styles.css", "enhancements.css", "experience.css", "deployment.js", "data.js", "experience-math.js", "experience.js", "app.js"]) {
     versionedIndex = versionedIndex.replace(`./${asset}`, `./${asset}?v=${assetVersion}`);
   }
   await writeFile(indexPath, versionedIndex, "utf8");
@@ -188,12 +192,16 @@ async function main() {
     };
   }
   await writeFile(join(TEMP_DIR, "snapshots", "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+  const staticSandbox = { window: {}, Object };
+  vm.runInNewContext(await readFile(join(PROJECT_DIR, "data.js"), "utf8"), staticSandbox);
+  await writeFile(join(TEMP_DIR, "snapshots", "static.json"), JSON.stringify({ generatedAt, data: staticSandbox.window.PULSE_STATIC_DATA }), "utf8");
 
   const expected = new Set([
     ...STATIC_FILES,
     "deployment.js",
     ".nojekyll",
     "snapshots/manifest.json",
+    "snapshots/static.json",
     ...[...SNAPSHOTS, ["health", "/api/health"]].map(([name]) => `snapshots/${name}.json`),
   ]);
   const actual = await listFiles(TEMP_DIR);

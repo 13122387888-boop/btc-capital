@@ -13,7 +13,11 @@ const expectedFiles = new Set([
   "enhancements.css",
   "index.html",
   "styles.css",
+  "experience.css",
+  "experience.js",
+  "experience-math.js",
   "snapshots/manifest.json",
+  "snapshots/static.json",
   ...snapshotNames.map(name => `snapshots/${name}.json`),
 ]);
 
@@ -55,7 +59,9 @@ async function main() {
   check(index.includes("Deribit") && !index.includes("BYBIT BTC OPTIONS"), "Gamma 页面来源未切换到 Deribit");
   check(index.includes("±0.5%（含）") && index.includes("达到 ±2%") && index.includes("28–35 天"), "首页稳定币阈值边界或窗口口径不完整");
   check(index.includes("5 / 20 个美国交易日") && index.includes("7 / 30 个自然日"), "首页资金与趋势时间口径未区分交易日和自然日");
-  check(["styles.css", "enhancements.css", "deployment.js", "data.js", "app.js"].every(asset => index.includes(`./${asset}?v=`)), "Pages 静态资源缺少构建版本号");
+  check(["styles.css", "enhancements.css", "experience.css", "deployment.js", "data.js", "experience-math.js", "experience.js", "app.js"].every(asset => index.includes(`./${asset}?v=`)), "Pages 静态资源缺少构建版本号");
+  check(index.includes('id="scan-home"') && index.includes('id="trend-chart"') && index.includes('id="note-sheet"'), "缺少扫描首页、价格结构或说明弹层");
+  check(!app.includes("window.location.replace"), "数据更新不得触发整页导航");
   check(app.includes("snapshotRefreshIntervalMs") && app.includes("reloadForNewerSnapshot") && app.includes("./snapshots/manifest.json") && app.includes('document.addEventListener("visibilitychange"') && app.includes('window.addEventListener("pageshow"'), "Pages 快照页面缺少自动续取与移动端恢复刷新");
   check(workflow.includes('cron: "37 * * * *"'), "Pages 定时刷新未配置为每小时错峰运行");
 
@@ -75,6 +81,8 @@ async function main() {
 
   const manifest = JSON.parse(await readFile(join(outputDir, "snapshots", "manifest.json"), "utf8"));
   check(manifest.generatedAt === deployment.generatedAt, "manifest 生成时间不一致");
+  const staticSnapshot = JSON.parse(await readFile(join(outputDir, "snapshots", "static.json"), "utf8"));
+  check(staticSnapshot.generatedAt === deployment.generatedAt && Array.isArray(staticSnapshot.data?.btcFlows), "原位刷新静态数据缺失或版本不一致");
   check(snapshotNames.every(name => manifest.snapshots?.[name]), "manifest 缺少快照条目");
   const health = JSON.parse(await readFile(join(outputDir, "snapshots", "health.json"), "utf8"));
   check(!("serverStartedAt" in (health.data || {})) && !("uptimeSeconds" in (health.data || {})), "health.json 不应公开临时服务器运行信息");

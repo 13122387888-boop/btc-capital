@@ -176,11 +176,18 @@ function normalizeGateCandles(value) {
     const high = numberOrNull(row?.[3]);
     const low = numberOrNull(row?.[4]);
     const close = numberOrNull(row?.[2]);
+    // Gate spot candlesticks: row[6] is BTC base volume; row[1] is USDT quote volume.
+    const baseVolume = numberOrNull(row?.[6]);
+    const quoteVolume = numberOrNull(row?.[1]);
     const closed = row?.[7] !== false && String(row?.[7]).toLowerCase() !== 'false';
     if (timestamp === null || !closed || [open, high, low, close].some((item) => item === null)) return [];
     const date = new Date(timestamp * 1000);
     if (Number.isNaN(date.getTime())) return [];
-    return [{ date: date.toISOString().slice(0, 10), open, high, low, close }];
+    return [{
+      date: date.toISOString().slice(0, 10), open, high, low, close,
+      volume: baseVolume !== null && baseVolume >= 0 ? baseVolume : null,
+      volumeQuote: quoteVolume !== null && quoteVolume >= 0 ? quoteVolume : null,
+    }];
   }).sort((a, b) => a.date.localeCompare(b.date));
 }
 
@@ -618,7 +625,7 @@ async function healthDataResult() {
   const gammaStatus = gammaPayload.status === 'live' ? 'live' : gammaPayload.status === 'partial' ? 'partial' : 'unavailable';
   modules.push({
     id: 'gamma',
-    label: 'Deribit BTC Gamma 估算',
+    label: 'Deribit BTC 期权 / Gamma 模型',
     kind: 'dynamic',
     status: gammaStatus,
     fetchedAt: gammaFetchedAt,
@@ -628,7 +635,7 @@ async function healthDataResult() {
     overdue: Number.isFinite(gammaUpdatedAtMs) ? Date.now() - gammaUpdatedAtMs > 15 * 60 * 1000 : false,
     fallbackActive: gammaPayload.stale === true,
     reasonCodes: gammaPayload.status === 'live' ? [] : gammaPayload.status === 'partial' ? [gammaPayload.stale ? 'stale_cache' : 'partial_coverage'] : ['missing_source'],
-    missingFields: gammaPayload.status === 'unavailable' ? ['Deribit OI / 标记 IV'] : [],
+    missingFields: gammaPayload.status === 'unavailable' ? ['Deribit OI / 标记 IV'] : gammaPayload.gammaStatus === 'unavailable' ? ['所选到期日 Gamma 模型输入（OI 可独立使用）'] : [],
     sources: [
       {
         provider: 'Deribit',

@@ -8,6 +8,7 @@
   <script>document.documentElement.classList.replace("no-js", "js");</script>
   <link rel="stylesheet" href="./styles.css" />
   <link rel="stylesheet" href="./enhancements.css" />
+  <link rel="stylesheet" href="./experience.css" />
 </head>
 <body>
   <aside class="rail" id="site-navigation" aria-label="数据分区导航">
@@ -48,6 +49,19 @@
 
   <main>
     <section class="hero section" id="overview">
+      <div class="scan-home" id="scan-home">
+        <div class="scan-heading"><div><p class="section-code">01 / MARKET OVERVIEW</p><h1>比特币，看到关键。</h1></div><span class="scan-signature">看见资金 · 读懂周期</span></div>
+        <div class="scan-quote"><div><span class="asset-token">₿</span><b>BTC <small>Bitcoin</small></b></div><div><strong id="scan-price">—</strong><span id="scan-change">等待报价</span></div></div>
+        <p class="scan-conclusion" id="scan-conclusion" aria-live="polite">正在核对趋势与资金数据…</p>
+        <article class="position-panel"><div class="micro-head"><h2>价格在什么位置？</h2><button class="term" data-note="walls" type="button">持仓位置口径</button></div><canvas id="position-chart" height="180" aria-label="BTC 价格、20日与60日均线、期权持仓峰值位置图"></canvas><div class="quiet-date" id="position-date">价格、均线与期权分别标注日期</div></article>
+        <div class="scan-list" aria-label="四项市场观察">
+          <a href="#trend"><span class="scan-number">01</span><span class="scan-row-copy"><b>趋势强不强</b><small id="scan-trend-evidence">核对已收盘日 K 与均线</small></span><strong id="scan-trend">—</strong><span>↗</span></a>
+          <a href="#etf"><span class="scan-number">02</span><span class="scan-row-copy"><b>机构在买入吗</b><small id="scan-capital-evidence">最近 5 / 20 个交易日净流</small></span><strong id="scan-capital">—</strong><span>↗</span></a>
+          <a href="#options"><span class="scan-number">03</span><span class="scan-row-copy"><b>期权集中在哪里</b><small id="scan-options-evidence">按到期日统计 Call / Put OI</small></span><strong id="scan-options">—</strong><span>↗</span></a>
+          <a href="#options/vol"><span class="scan-number">04</span><span class="scan-row-copy"><b>波动定价有多高</b><small id="scan-vol-evidence">平值 IV 与近似同期限历史波动</small></span><strong id="scan-vol">—</strong><span>↗</span></a>
+        </div>
+        <div class="scan-bottom"><button class="term" data-note="bitcoin" type="button">为什么观察比特币</button><a href="#market">情绪</a><a href="#seasonality">季节性</a><a href="#defi">流动性</a><a href="#health">数据状态 ↗</a></div>
+      </div>
       <div class="section-code">01 / MARKET OVERVIEW</div>
       <div class="hero-grid">
         <div class="hero-copy">
@@ -129,6 +143,10 @@
       </div>
     </section>
 
+    <section class="section" id="trend">
+      <div class="section-head"><div><p class="section-code">02 / PRICE STRUCTURE</p><h2>趋势强不强？</h2><p id="trend-conclusion">等待已收盘日 K 数据</p></div><button class="term" data-note="trend" type="button">趋势口径</button></div>
+      <article class="panel new-trend-panel"><div class="micro-head"><div class="range-tabs" id="trend-ranges" aria-label="趋势图范围"><button type="button" data-trend-range="30" aria-pressed="false">30日</button><button type="button" data-trend-range="90" aria-pressed="true" class="active">90日</button><button type="button" data-trend-range="180" aria-pressed="false">180日</button></div><button type="button" class="chart-enlarge" data-enlarge="trend-chart">放大 ↗</button></div><div class="chart-legend"><span class="ma20">━ 20日均线</span><span class="ma60">━ 60日均线</span><button class="term" data-note="walls" type="button">虚线：期权持仓峰值</button></div><canvas id="trend-chart" height="360" aria-label="BTC 日 K、20日60日均线、成交量及期权持仓峰值组合图" tabindex="0"></canvas><output id="trend-readout" class="chart-readout">左右移动查看某日价格 · 上下滑动浏览页面</output><p id="trend-date" class="quiet-date"></p><div class="condition"><span>接下来观察</span><p id="trend-observe">数据齐备后显示观察条件。</p></div><p class="pro-only" id="trend-pro"></p></article>
+    </section>
     <section class="section" id="etf">
       <div class="section-head"><div><p class="section-code">02 / INSTITUTIONAL FLOW</p><h2>机构资金正在买入 BTC 吗？</h2><p>绿色柱代表净买入，红色柱代表净卖出；橙色线代表 BTC 价格。</p></div><span class="state-badge static" id="etf-static-state">STATIC · —</span></div>
       <div class="insight" id="etf-insight"><b>先看结论</b><span>正在计算机构资金与 BTC 价格的同步变化…</span></div>
@@ -254,8 +272,14 @@
   </main>
 
   <footer><b>BTC CAPITAL PULSE</b><span>公开数据研究终端 · 不构成投资建议</span><span>数据状态与来源见各模块</span></footer>
+  <nav class="bottom-nav" aria-label="主页面"><a href="#overview">总览</a><a href="#trend">趋势</a><a href="#etf">资金</a><a href="#options">期权</a><button type="button" id="more-views">更多</button></nav>
+  <dialog class="note-sheet" id="note-sheet" aria-labelledby="sheet-title"><div class="sheet-handle"></div><div class="sheet-head"><h2 id="sheet-title">数据说明</h2><button type="button" id="sheet-close" aria-label="关闭说明">✕</button></div><div id="sheet-content"></div></dialog>
+  <dialog class="zoom-dialog" id="zoom-dialog" aria-label="放大图表"><div class="sheet-head"><h2 id="zoom-title">图表</h2><button type="button" id="zoom-close" aria-label="关闭放大图表">关闭 ✕</button></div><div id="zoom-content"></div></dialog>
+  <output class="toast" id="experience-toast" aria-live="polite"></output>
   <script src="./deployment.js"></script>
   <script src="./data.js"></script>
+  <script src="./experience-math.js"></script>
+  <script src="./experience.js"></script>
   <script src="./app.js"></script>
 </body>
 </html>

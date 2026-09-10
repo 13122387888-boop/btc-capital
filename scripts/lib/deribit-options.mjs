@@ -131,7 +131,86 @@ function aggregateGamma(metrics) {
   };
 }
 
-export function computeDeribitGammaSnapshot({ instrumentsPayload, summariesPayload, fetchedAt = Date.now(), minDaysToExpiry = DEFAULT_MIN_DAYS_TO_EXPIRY, strikeRangeRatio = DEFAULT_STRIKE_RANGE_RATIO }) {
+function aggregateOpenInterest(rows, requestedContracts) {
+  const knownRows = rows.filter((row) => Number.isFinite(row.openInterest) && row.openInterest >= 0);
+  const byStrike = new Map();
+  let callOi = 0;
+  let putOi = 0;
+  for (const row of knownRows) {
+    const aggregate = byStrike.get(row.strike) ?? { strike: row.strike, callOi: 0, putOi: 0, contracts: 0 };
+    if (row.optionType === "call") {
+      aggregate.callOi += row.openInterest;
+      callOi += row.openInterest;
+    } else {
+      aggregate.putOi += row.openInterest;
+      putOi += row.openInterest;
+    }
+    aggregate.contracts += 1;
+    byStrike.set(row.strike, aggregate);
+  }
+  const oiByStrike = [...byStrike.values()].sort((a, b) => a.strike - b.strike);
+  const wall = (field, total) => {
+    if (total <= 0) return null;
+    const maximum = Math.max(...oiByStrike.map((row) => row[field]));
+    const tiedStrikes = oiByStrike.filter((row) => row[field] === maximum).map((row) => row.strike);
+    return { strike: tiedStrikes[0], openInterest: maximum, shareOfSide: maximum / total, tiedStrikes };
+  };
+  return {
+    oiByStrike,
+    callOi,
+    putOi,
+    putCallOiRatio: callOi > 0 ? putOi / callOi : null,
+    callWall: wall("callOi", callOi),
+    putWall: wall("putOi", putOi),
+    maxPain: maxPainReference(knownRows),
+    oiStatus: knownRows.length === requestedContracts ? "live" : knownRows.length ? "partial" : "unavailable",
+    oiCoverage: {
+      ratio: requestedContracts ? knownRows.length / requestedContracts : 0,
+      knownContracts: knownRows.length,
+      requestedContracts,
+      missingContracts: requestedContracts - knownRows.length,
+      basis: "所选到期日全部 BTC 反向期权；已知非负 OI 按行权价聚合，不要求 IV 有效，不受 Gamma 的现价上下区间筛选影响。",
+    },
+    oiMethod: "Call/Put 墙分别是所选到期日已知 Call/Put OI 最大的行权价；并列时主点位取较低价并列出全部并列价。单位 BTC；不表示买卖方向、做市商仓位或必然支撑阻力。",
+  };
+}
+
+function atTheMoneyIv(rows, { forward, spot, years, expiry, asOf }) {
+  if (!Number.isFinite(forward) || forward <= 0 || !rows.length) return null;
+  // Select the listed strike first. Missing IV must not silently move the sample to an OTM strike.
+  const strikes = [...new Set(rows.map((row) => row.strike))].sort((a, b) => a - b);
+  const strike = strikes.reduce((best, candidate) => Math.abs(candidate - forward) < Math.abs(best - forward) ? candidate : best);
+  const sideIv = (side) => median(rows.filter((row) => row.strike === strike && row.optionType === side)
+    .map((row) => row.markIv).filter((value) => Number.isFinite(value) && value > 0));
+  const callIv = sideIv("call");
+  const putIv = sideIv("put");
+  const observed = [callIv, putIv].filter(Number.isFinite);
+  const value = observed.length ? observed.reduce((sum, iv) => sum + iv, 0) / observed.length : null;
+  const moveRatio = value === null ? null : value / 100 * Math.sqrt(years);
+  const expectedMove = moveRatio !== null && Number.isFinite(spot) && spot > 0 ? {
+    moveUsd: spot * moveRatio,
+    movePct: moveRatio * 100,
+    lower: Math.max(0, spot * (1 - moveRatio)),
+    upper: spot * (1 + moveRatio),
+    method: "指数代理价 × ATM IV/100 × sqrt(剩余天数/365.25)；简单一标准差幅度近似，不是价格预测或保证的概率区间。",
+  } : null;
+  return {
+    status: observed.length === 2 ? "live" : observed.length ? "partial" : "unavailable",
+    value,
+    unit: "annualized percent",
+    strike,
+    callIv,
+    putIv,
+    moneynessPct: (strike / forward - 1) * 100,
+    daysToExpiry: years * 365.25,
+    expiry,
+    asOf,
+    expectedMove,
+    method: "距所选到期日远期价最近的已上市行权价；取 Call/Put mark_iv 简单平均，仅一侧可用时标为 partial；未做固定期限插值。",
+  };
+}
+
+export function computeDeribitGammaSnapshot({ instrumentsPayload, summariesPayload, fetchedAt = Date.now(), minDaysToExpiry = DEFAULT_MIN_DAYS_TO_EXPIRY, strikeRangeRatio = DEFAULT_STRIKE_RANGE_RATIO, expiryTimestamp: selectedExpiryTimestamp = null, includeExpirySnapshots = true, allowGammaUnavailable = false }) {
   const instruments = resultRows(instrumentsPayload, "Deribit instruments")
     .map(normalizedInstrument)
     .filter(Boolean);
@@ -141,9 +220,10 @@ export function computeDeribitGammaSnapshot({ instrumentsPayload, summariesPaylo
   if (!summaries.length) throw new Error("Deribit 没有返回 BTC 期权市场汇总");
   const apiTime = payloadTime(summariesPayload, fetchedAt);
   const threshold = apiTime + minDaysToExpiry * 24 * 60 * 60 * 1000;
-  const expiryTimestamp = [...new Set(instruments.map((row) => row.expiryTimestamp).filter((value) => value >= threshold))]
-    .sort((a, b) => a - b)[0] ?? null;
+  const availableExpiries = [...new Set(instruments.map((row) => row.expiryTimestamp).filter((value) => value > apiTime))].sort((a, b) => a - b);
+  const expiryTimestamp = selectedExpiryTimestamp ?? availableExpiries.find((value) => value >= threshold) ?? null;
   if (expiryTimestamp === null) throw new Error(`Deribit 没有至少 ${minDaysToExpiry} 天后到期的 BTC 期权`);
+  if (!availableExpiries.includes(expiryTimestamp)) throw new Error("Deribit 所选到期日不存在或已经到期");
 
   const years = (expiryTimestamp - apiTime) / YEAR_MS;
   if (!Number.isFinite(years) || years <= 0) throw new Error("Deribit 期权到期时间无效");
@@ -162,16 +242,16 @@ export function computeDeribitGammaSnapshot({ instrumentsPayload, summariesPaylo
       indexPrice: deribitIndexFromForward({ forward: forwardPrice, years, interestRate }),
     };
   });
-  if (!expiryRows.some((row) => row.summaryPresent)) throw new Error("Deribit 所选到期日缺少市场汇总");
+  let gammaError = expiryRows.some((row) => row.summaryPresent) ? null : "Deribit 所选到期日缺少市场汇总";
   const forward = median(expiryRows.map((row) => row.forwardPrice).filter((value) => Number.isFinite(value) && value > 0));
   const spot = median(expiryRows.map((row) => row.indexPrice).filter((value) => Number.isFinite(value) && value > 0));
-  if (!Number.isFinite(spot) || spot <= 0) throw new Error("Deribit BTC 期权参考标的价格不可用");
+  if (!Number.isFinite(spot) || spot <= 0) gammaError ??= "Deribit BTC 期权参考标的价格不可用";
 
-  const minimumStrike = spot * (1 - strikeRangeRatio);
-  const maximumStrike = spot * (1 + strikeRangeRatio);
+  const minimumStrike = Number.isFinite(spot) ? spot * (1 - strikeRangeRatio) : null;
+  const maximumStrike = Number.isFinite(spot) ? spot * (1 + strikeRangeRatio) : null;
   const requestedRows = expiryRows.filter((row) => row.strike >= minimumStrike && row.strike <= maximumStrike);
   const positiveOiRows = requestedRows.filter((row) => Number.isFinite(row.openInterest) && row.openInterest > 0);
-  if (!positiveOiRows.length) throw new Error("Deribit 现价附近没有带未平仓量的 BTC 期权");
+  if (!positiveOiRows.length) gammaError ??= "Deribit 现价附近没有带未平仓量的 BTC 期权";
 
   const metrics = positiveOiRows.flatMap((row) => {
     const volatility = Number.isFinite(row.markIv) ? row.markIv / 100 : null;
@@ -194,21 +274,24 @@ export function computeDeribitGammaSnapshot({ instrumentsPayload, summariesPaylo
   const contractCoverage = requestedRows.length ? validContracts / requestedRows.length : 0;
   const oiCoverage = requestedOi > 0 ? validOi / requestedOi : 0;
   if (contractCoverage < MIN_CONTRACT_COVERAGE || oiCoverage < MIN_OI_COVERAGE) {
-    throw new Error(`Deribit 模型 Gamma 覆盖不足（合约 ${(contractCoverage * 100).toFixed(1)}%，OI ${(oiCoverage * 100).toFixed(1)}%）`);
+    gammaError ??= `Deribit 模型 Gamma 覆盖不足（合约 ${(contractCoverage * 100).toFixed(1)}%，OI ${(oiCoverage * 100).toFixed(1)}%）`;
   }
 
   const aggregate = aggregateGamma(metrics);
-  if (!aggregate.byStrike.length) throw new Error("Deribit 模型 Gamma 聚合结果为空");
-  const knownOiRows = expiryRows.filter((row) => Number.isFinite(row.openInterest) && row.openInterest >= 0);
-  const callOi = knownOiRows.filter((row) => row.optionType === "call").reduce((sum, row) => sum + row.openInterest, 0);
-  const putOi = knownOiRows.filter((row) => row.optionType === "put").reduce((sum, row) => sum + row.openInterest, 0);
+  if (!aggregate.byStrike.length) gammaError ??= "Deribit 模型 Gamma 聚合结果为空";
+  if (gammaError && !allowGammaUnavailable) throw new Error(gammaError);
+  const oiStructure = aggregateOpenInterest(expiryRows, expiryRows.length);
   const markIvs = metrics.map((row) => row.markIv).filter(Number.isFinite);
   const missingSummaryContracts = requestedRows.filter((row) => !row.summaryPresent).length;
   const complete = validContracts === requestedRows.length && oiCoverage >= 0.995;
 
-  return {
+  const expiry = new Date(expiryTimestamp).toISOString().slice(0, 10);
+  const asOf = new Date(apiTime).toISOString();
+  const snapshot = {
     schemaVersion: GAMMA_SCHEMA_VERSION,
-    status: complete ? "live" : "partial",
+    status: gammaError ? (oiStructure.oiStatus === "unavailable" ? "unavailable" : "partial") : complete && oiStructure.oiStatus === "live" ? "live" : "partial",
+    gammaStatus: gammaError ? "unavailable" : complete ? "live" : "partial",
+    gammaError,
     symbol: "BTC",
     venue: "Deribit",
     source: "Deribit 官方公开 instruments 与 book summary",
@@ -218,11 +301,13 @@ export function computeDeribitGammaSnapshot({ instrumentsPayload, summariesPaylo
       summaries: `${DERIBIT_BASE_URL}/public/get_book_summary_by_currency?currency=BTC&kind=option`,
     },
     fetchedAt: new Date(fetchedAt).toISOString(),
-    asOf: new Date(apiTime).toISOString(),
-    lastSuccessAt: new Date(apiTime).toISOString(),
+    asOf,
+    lastSuccessAt: gammaError ? null : asOf,
     spot,
     forward,
-    expiry: new Date(expiryTimestamp).toISOString().slice(0, 10),
+    expiry,
+    expiryTimestamp,
+    daysToExpiry: years * 365.25,
     strikeRange: { minimum: minimumStrike, maximum: maximumStrike },
     gammaSource: GAMMA_SOURCE,
     referencePriceType: "Deribit index proxy = underlying_price × exp(-interest_rate × T)",
@@ -240,19 +325,42 @@ export function computeDeribitGammaSnapshot({ instrumentsPayload, summariesPaylo
       oiRatio: oiCoverage,
       validOpenInterest: validOi,
       requestedOpenInterest: requestedOi,
-      basis: "指数代理价上下 25% 内，以 instruments 合约全集为分母；零 OI 合约只需完整 summary，正 OI 合约须具备标记 IV、利率与到期远期价",
+      basis: `指数代理价上下 ${strikeRangeRatio * 100}% 内，以 instruments 合约全集为分母；零 OI 合约只需完整 summary，正 OI 合约须具备标记 IV、利率与到期远期价`,
     },
-    callOi,
-    putOi,
-    putCallOiRatio: callOi > 0 ? putOi / callOi : null,
-    maxPain: maxPainReference(knownOiRows),
+    ...oiStructure,
+    atmIv: atTheMoneyIv(expiryRows, { forward, spot, years, expiry, asOf }),
     medianMarkIv: median(markIvs),
-    byStrike: aggregate.byStrike,
-    callGex: aggregate.callGex,
-    putGex: aggregate.putGex,
-    netGex: aggregate.netGex,
-    grossGex: aggregate.grossGex,
+    byStrike: gammaError ? [] : aggregate.byStrike,
+    callGex: gammaError ? null : aggregate.callGex,
+    putGex: gammaError ? null : aggregate.putGex,
+    netGex: gammaError ? null : aggregate.netGex,
+    grossGex: gammaError ? null : aggregate.grossGex,
   };
+  if (includeExpirySnapshots) {
+    const expirySnapshots = availableExpiries.map((timestamp) => timestamp === expiryTimestamp ? { ...snapshot } : computeDeribitGammaSnapshot({
+      instrumentsPayload,
+      summariesPayload,
+      fetchedAt,
+      minDaysToExpiry,
+      strikeRangeRatio,
+      expiryTimestamp: timestamp,
+      includeExpirySnapshots: false,
+      allowGammaUnavailable: true,
+    }));
+    snapshot.expirySnapshots = expirySnapshots;
+    snapshot.expiries = expirySnapshots.map((sample) => ({
+      expiry: sample.expiry,
+      expiryTimestamp: sample.expiryTimestamp,
+      daysToExpiry: sample.daysToExpiry,
+      status: sample.status,
+      gammaStatus: sample.gammaStatus,
+      oiStatus: sample.oiStatus,
+      atmIvStatus: sample.atmIv?.status ?? "unavailable",
+      isDefault: sample.expiryTimestamp === expiryTimestamp,
+    }));
+    snapshot.expirySelectionMethod = `默认使用至少 ${minDaysToExpiry} 天后最近到期日；可切换本次 instruments 返回的全部未到期合约，不静默跨到期日替代。`;
+  }
+  return snapshot;
 }
 
 async function fetchJsonRpc(url, fetchImpl, timeoutMs) {
@@ -289,7 +397,10 @@ export async function fetchDeribitGamma({ fetchImpl = fetch, timeoutMs = DEFAULT
     fetchInstruments(fetchImpl, timeoutMs, now),
     fetchJsonRpc(`${DERIBIT_BASE_URL}/public/get_book_summary_by_currency?currency=BTC&kind=option`, fetchImpl, timeoutMs),
   ]);
-  return computeDeribitGammaSnapshot({ instrumentsPayload, summariesPayload, fetchedAt: now });
+  const snapshot = computeDeribitGammaSnapshot({ instrumentsPayload, summariesPayload, fetchedAt: now, allowGammaUnavailable: true });
+  // A model failure must not discard independently observed OI. No-data failures still use the server's last-good fallback.
+  if (snapshot.status === "unavailable") throw new Error(snapshot.gammaError || "Deribit 所选到期日缺少可用市场数据");
+  return snapshot;
 }
 
 export function isUsableGammaPayload(payload, { now = Date.now(), maxAgeMs = LAST_GOOD_MAX_AGE_MS } = {}) {
