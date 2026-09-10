@@ -1,30 +1,30 @@
 window.PULSE_STATIC_DATA = {
-  "asOf": "2026-08-26",
+  "asOf": "2026-09-09",
   "sources": {
     "etfFlows": {
       "provider": "SoSoValue OpenAPI",
       "url": "https://sosovalue.gitbook.io/soso-value-api-doc/api-document/get-etf-historical-inflow-chart",
-      "asOf": "2026-08-26",
+      "asOf": "2026-09-09",
       "mode": "美国现货 BTC ETF totalNetInflow，USD 换算为百万美元；每次取 300 个交易日并与本地历史合并",
       "fallbackFor": "Farside Investors"
     },
     "ethEtfFlows": {
       "provider": "SoSoValue OpenAPI",
       "url": "https://sosovalue.gitbook.io/soso-value-api-doc/api-document/get-etf-historical-inflow-chart",
-      "asOf": "2026-08-26",
+      "asOf": "2026-09-09",
       "mode": "美国现货 ETH ETF totalNetInflow，USD 换算为百万美元；每次取 300 个交易日并与本地历史合并",
       "fallbackFor": "Farside Investors"
     },
     "btcMonthly": {
       "provider": "Gate.io",
       "url": "https://www.gate.com/docs/developers/apiv4/en/#market-candlesticks",
-      "asOf": "2026-07-31",
+      "asOf": "2026-08-31",
       "mode": "BTC/USDT 已收盘日 K 线重建的完整月末收盘价；当月仅进入季节性 MTD"
     },
     "ibitOptions": {
       "provider": "Longbridge Securities",
       "url": "https://open.longbridge.com/docs/cli/derivatives/option",
-      "asOf": "2026-08-21",
+      "asOf": "2026-09-09",
       "mode": "longbridge option volume daily IBIT.US 的公开日频成交量与未平仓量快照"
     }
   },
@@ -156,7 +156,11 @@ window.PULSE_STATIC_DATA = {
     ],
     [
       "2026-08",
-      3265.8
+      3522.9
+    ],
+    [
+      "2026-09",
+      603.3
     ]
   ],
   "btcFlows": [
@@ -1371,6 +1375,42 @@ window.PULSE_STATIC_DATA = {
     [
       "2026-08-26",
       232.1
+    ],
+    [
+      "2026-08-27",
+      242.2
+    ],
+    [
+      "2026-08-28",
+      -201.8
+    ],
+    [
+      "2026-08-31",
+      216.7
+    ],
+    [
+      "2026-09-01",
+      -236.5
+    ],
+    [
+      "2026-09-02",
+      101.1
+    ],
+    [
+      "2026-09-03",
+      730.9
+    ],
+    [
+      "2026-09-04",
+      174.6
+    ],
+    [
+      "2026-09-08",
+      -46.6
+    ],
+    [
+      "2026-09-09",
+      -120.2
     ]
   ],
   "ethFlows": [
@@ -2585,6 +2625,42 @@ window.PULSE_STATIC_DATA = {
     [
       "2026-08-26",
       192.4
+    ],
+    [
+      "2026-08-27",
+      234.5
+    ],
+    [
+      "2026-08-28",
+      102.2
+    ],
+    [
+      "2026-08-31",
+      87.7
+    ],
+    [
+      "2026-09-01",
+      11
+    ],
+    [
+      "2026-09-02",
+      -48.1
+    ],
+    [
+      "2026-09-03",
+      141.4
+    ],
+    [
+      "2026-09-04",
+      26.5
+    ],
+    [
+      "2026-09-08",
+      -24.3
+    ],
+    [
+      "2026-09-09",
+      34.8
     ]
   ],
   "btcMonthly": [
@@ -3231,17 +3307,21 @@ window.PULSE_STATIC_DATA = {
     [
       "2026-07",
       62888.4
+    ],
+    [
+      "2026-08",
+      78585.7
     ]
   ],
   "ibitOptions": {
-    "asOf": "2026-08-21",
-    "retrievedAt": "2026-08-24",
+    "asOf": "2026-09-09",
+    "retrievedAt": "2026-09-10",
     "snapshot": {
-      "tradeDate": "2026-08-21",
-      "callVolume": 1305842,
-      "putVolume": 750398,
-      "putCallRatio": 0.575,
-      "openInterest": 7824970
+      "tradeDate": "2026-09-09",
+      "callVolume": 369146,
+      "putVolume": 210814,
+      "putCallRatio": 0.571,
+      "openInterest": 7674810
     },
     "daily": [
       [
@@ -3873,12 +3953,96 @@ window.PULSE_STATIC_DATA = {
         750398,
         0.575,
         7824970
+      ],
+      [
+        "2026-08-24",
+        954611,
+        583776,
+        0.612,
+        7988332
+      ],
+      [
+        "2026-08-25",
+        349329,
+        219422,
+        0.628,
+        7426440
+      ],
+      [
+        "2026-08-26",
+        304783,
+        258323,
+        0.848,
+        7611405
+      ],
+      [
+        "2026-08-27",
+        615273,
+        246102,
+        0.4,
+        7558966
+      ],
+      [
+        "2026-08-28",
+        590787,
+        493135,
+        0.835,
+        7814473
+      ],
+      [
+        "2026-08-31",
+        432840,
+        229379,
+        0.53,
+        7535284
+      ],
+      [
+        "2026-09-01",
+        390551,
+        303834,
+        0.778,
+        7341396
+      ],
+      [
+        "2026-09-02",
+        224610,
+        138595,
+        0.617,
+        7545139
+      ],
+      [
+        "2026-09-03",
+        834345,
+        303283,
+        0.363,
+        7478891
+      ],
+      [
+        "2026-09-04",
+        487195,
+        267297,
+        0.549,
+        7826421
+      ],
+      [
+        "2026-09-08",
+        300028,
+        178916,
+        0.596,
+        7569650
+      ],
+      [
+        "2026-09-09",
+        369146,
+        210814,
+        0.571,
+        7674810
       ]
     ]
   },
   "seasonality": {
     "source": "Gate.io BTC/USDT daily close",
-    "asOf": "2026-08-23",
+    "asOf": "2026-09-09",
     "years": {
       "2013": [
         null,
@@ -4070,8 +4234,8 @@ window.PULSE_STATIC_DATA = {
         -3.5,
         -20.4,
         7.3,
-        23.6,
-        null,
+        25,
+        -0.4,
         null,
         null,
         null
