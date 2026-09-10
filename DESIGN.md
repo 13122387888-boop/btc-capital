@@ -2,7 +2,7 @@
 
 首页负责扫描，详情负责验证。主线为：结论 → 图表依据 → 接下来观察的条件。
 
-- BTC 单资产入口，保留 SOXX 外链，不生成缺乏样本依据的综合排名。
+- BTC 单资产入口，不生成缺乏样本依据的综合排名。
 - 默认新手模式：普通语言、少量结论。专业模式展开计算读数，不改变判定结果。
 - 首页为价格位置图与趋势、资金、期权、波动四项紧凑清单。详细视图按标签切换。
 - 微软雅黑；手机无整页横向滚动。标签可单行横向滚动，图表纵向手势交还页面。
@@ -26,6 +26,7 @@
 
 ```text
 node scripts/test-experience.mjs
+node scripts/test-frontend-structure.mjs
 node scripts/test-deribit-options.mjs
 node scripts/validate-static-data.mjs
 node scripts/build-pages.mjs

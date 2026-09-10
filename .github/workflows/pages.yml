@@ -54,6 +54,11 @@ jobs:
       - name: Validate Deribit Gamma model
         run: npm run test:deribit
 
+      - name: Validate frontend models and structure
+        run: |
+          npm run test:experience
+          npm run test:structure
+
       - name: Build safe Pages artifact
         run: npm run build:pages
 

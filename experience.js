@@ -273,12 +273,8 @@
   function init() {
     api = window.PULSE_RUNTIME; if (!api) return;
     document.body.classList.add('experience');
-    const nav = document.querySelector('.rail nav'); nav.insertAdjacentHTML('afterbegin', '<a href="#trend"><i>02</i><span>价格结构<small>趋势与关键位</small></span></a>'); nav.prepend(nav.querySelector('[href="#overview"]'));
-    nav.querySelectorAll('a').forEach((a,i)=>{const n=String(i+1).padStart(2,'0');a.querySelector('i').textContent=n;const code=$(a.hash.slice(1))?.querySelector('.section-code');if(code)code.textContent=code.textContent.replace(/^\d+/,n);});
     document.querySelector('.topbar').insertAdjacentHTML('beforeend', '<div class="experience-tools"><button type="button" id="view-mode" aria-pressed="false">新手模式</button><button type="button" id="refresh-data">刷新</button><button type="button" id="share-view">分享 ↗</button></div>');
-    const learn = $('bitcoin-fundamentals'); $('methodology').append(learn); learn.classList.add('is-expanded');
     setupOptions(); setupTabs(); setupNotes();
-    document.querySelectorAll('.mobile-section-body').forEach(x => x.classList.add('is-expanded'));
     document.querySelector('[data-overlay-chart="etfRolling"]').checked = true;
     document.addEventListener('click', e => { const a = e.target.closest('a[href^="#"]'); if (a && !e.ctrlKey && !e.metaKey && !e.shiftKey) { e.preventDefault(); if ($('note-sheet').open) closeSheet(); navigate(a.hash); } const zoom = e.target.closest('[data-enlarge]'); if (zoom) enlarge(zoom.dataset.enlarge, zoom); });
     $('mobile-menu').addEventListener('click', () => setDrawer(!document.body.classList.contains('nav-open'))); $('nav-scrim').addEventListener('click', () => setDrawer(false));
