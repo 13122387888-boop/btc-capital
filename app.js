@@ -7,7 +7,13 @@
   const snapshotStaleAfterSeconds = Number.isFinite(Number(deployment.staleAfterSeconds)) ? Number(deployment.staleAfterSeconds) : 6 * 3600;
   const snapshotRefreshIntervalMs = 5 * 60 * 1000;
   let activeSnapshotGeneratedAt = deployment.generatedAt || "";
-  const cachePrefix = "btc_pulse_v2_";
+  const moduleSnapshotGenerations = new Map();
+  let deviceStorage;
+  try { deviceStorage = window.localStorage; } catch { /* storage may be disabled */ }
+  const dataClient = window.PULSE_SNAPSHOT_CLIENT.create({
+    fetch: window.fetch.bind(window), storage: deviceStorage, baseUrl: location.href,
+    snapshotMode: isSnapshotMode, generatedAt: deployment.generatedAt || ""
+  });
   const sourceStates = {};
   let latestBtcPrice = null;
   let currentBtcChange = null;
@@ -70,40 +76,31 @@
     return Number.isFinite(timestamp) ? Math.max(0, (Date.now() - timestamp) / 1000) : null;
   }
 
-  function recordSnapshotGeneration(payload) {
+  function recordSnapshotGeneration(payload, key) {
     if (!isSnapshotMode) return;
     const candidate = payload?.snapshot?.generatedAt || payload?.generatedAt || "";
-    const candidateTime = Date.parse(candidate);
-    const currentTime = Date.parse(activeSnapshotGeneratedAt || "");
-    if (Number.isFinite(candidateTime) && (!Number.isFinite(currentTime) || candidateTime > currentTime)) activeSnapshotGeneratedAt = candidate;
+    if (!Number.isFinite(Date.parse(candidate))) return;
+    moduleSnapshotGenerations.set(key, candidate);
+    // A new manifest/module never makes an older fallback batch look fresh.
+    const times = [...moduleSnapshotGenerations.values(), activeStaticGeneratedAt].filter(value => Number.isFinite(Date.parse(value)));
+    activeSnapshotGeneratedAt = times.sort((a, b) => Date.parse(a) - Date.parse(b))[0] || deployment.generatedAt;
   }
 
   async function reloadForNewerSnapshot() {
-    if (!isSnapshotMode) return false;
+    if (!isSnapshotMode) return;
     try {
-      const response = await fetch("./snapshots/manifest.json", { cache: "no-store", headers: { accept: "application/json" } });
-      if (!response.ok) return false;
-      const manifest = await response.json();
-      const candidate = manifest?.generatedAt || "";
-      const candidateTime = Date.parse(candidate);
-      const currentTime = Date.parse(activeStaticGeneratedAt || deployment.generatedAt || "");
-      if (!Number.isFinite(candidateTime) || (Number.isFinite(currentTime) && candidateTime <= currentTime)) return false;
-      // Refresh data, never navigate: preserve tabs, expiry and reading position.
-      const staticResponse = await fetch(`./snapshots/static.json?v=${candidateTime}`, { cache: "no-store" });
-      if (staticResponse.ok) {
-        const next = await staticResponse.json();
-        if (next.generatedAt === candidate && Array.isArray(next.data?.btcFlows) && next.data?.sources) {
-          staticData = next.data;
-          window.PULSE_STATIC_DATA = staticData;
-          activeStaticGeneratedAt = candidate;
-          updateStaticLabels(); renderStatic(); renderOptions(); renderSeasonality();
-        }
-      }
-      activeSnapshotGeneratedAt = candidate;
-      return false;
-    } catch {
-      return false;
-    }
+      // The client owns ./snapshots/manifest.json, its timeout and version validation.
+      const { generation } = await dataClient.checkManifest();
+      if (generation === activeStaticGeneratedAt) return;
+      const result = await dataClient.get("static", "./snapshots/static.json", 86400000, 10000);
+      const next = result.value;
+      if (next.generatedAt !== generation) return;
+      staticData = next.data;
+      window.PULSE_STATIC_DATA = staticData;
+      activeStaticGeneratedAt = generation;
+      recordSnapshotGeneration(next, "static");
+      updateStaticLabels(); renderStatic(); renderOptions(); renderSeasonality();
+    } catch { /* preserve original dates and retry the next check */ }
   }
 
   function isSnapshotStale() {
@@ -129,9 +126,9 @@
     if ($("rail-mode-note")) $("rail-mode-note").textContent = "零密钥 · Actions 快照";
     if ($("health-runtime-kicker")) $("health-runtime-kicker").textContent = "ACTION SNAPSHOTS";
     if ($("health-runtime-title")) $("health-runtime-title").textContent = "定时快照与上游状态";
-    if ($("health-runtime-definition")) $("health-runtime-definition").innerHTML = `<b>快照新鲜度窗口</b> GitHub Actions 每两小时尝试刷新；超过 ${Math.round(snapshotStaleAfterSeconds / 3600)} 小时未重新生成时标为 STALE SNAPSHOT。抓取时间与上游数据截止日分开显示。`;
+    if ($("health-runtime-definition")) $("health-runtime-definition").innerHTML = `<b>快照新鲜度窗口</b> GitHub Actions 每小时尝试刷新；超过 ${Math.round(snapshotStaleAfterSeconds / 3600)} 小时未重新生成时标为 STALE SNAPSHOT。抓取时间与上游数据截止日分开显示。`;
     if ($("runtime-method")) $("runtime-method").innerHTML = "<span>SNAPSHOT</span><h3>Actions 定时快照</h3><p>GitHub Actions 统一读取公开端点并生成同批 JSON；页面明确展示生成时间，不把快照称为实时数据。</p>";
-    if ($("cache-method")) $("cache-method").innerHTML = "<span>CACHED</span><h3>浏览器成功缓存</h3><p>浏览器只在快照暂时读取失败时沿用最近成功结果，并明确标为 CACHED SNAPSHOT。</p>";
+    if ($("cache-method")) $("cache-method").innerHTML = "<span>CACHED</span><h3>浏览器成功缓存</h3><p>浏览器先显示最近成功结果并标明缓存，随后核对版本；数据日期与有效性不因缓存读取而延长。</p>";
     document.querySelectorAll(".module-updated").forEach(node => { if (!node.textContent.includes("快照")) node.textContent = "等待快照"; });
   }
 
@@ -178,31 +175,10 @@
     el.classList.toggle("up", value > 0);
     el.classList.toggle("down", value < 0);
   }
-  function cacheRead(key) {
-    try { return JSON.parse(localStorage.getItem(cachePrefix + key) || "null"); } catch { return null; }
-  }
-  function cacheWrite(key, value) {
-    try { localStorage.setItem(cachePrefix + key, JSON.stringify({ at: Date.now(), value })); } catch { /* local cache is optional */ }
-  }
-  async function getJSON(key, url, ttl = 120000, timeout = 7500) {
-    const cached = cacheRead(key);
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeout);
-    try {
-      const response = await fetch(url, { signal: controller.signal, cache: "no-store", headers: { accept: "application/json" } });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const value = await response.json();
-      if (value?.status === "unavailable") throw new Error("service unavailable");
-      recordSnapshotGeneration(value);
-      cacheWrite(key, value);
-      return { value, state: "live", cachedAt: null };
-    } catch (error) {
-      if (cached && cached.value?.status !== "unavailable" && Date.now() - cached.at < ttl * 12) {
-        recordSnapshotGeneration(cached.value);
-        return { value: cached.value, state: "cached", cachedAt: cached.at };
-      }
-      throw error;
-    } finally { clearTimeout(timer); }
+  async function getJSON(key, url, ttl = 120000, timeout = 7500, prefetched = null) {
+    const result = prefetched || await dataClient.get(key, url, ttl, timeout);
+    recordSnapshotGeneration(result.value, key);
+    return result;
   }
   function shortUpdatedAt(value) {
     const date = value ? new Date(value) : null;
@@ -222,8 +198,8 @@
   }
   function payloadState(payload, transportState = "live") {
     if (payload?.status === "unavailable") return "error";
-    if (payload?.status === "partial") return "partial";
     if (transportState === "cached") return "cached";
+    if (payload?.status === "partial") return "partial";
     return "live";
   }
   function updateCompositeMarketTime() {
@@ -549,12 +525,12 @@
     }
   }
 
-  async function loadGamma() {
+  async function loadGamma(prefetched = null) {
     const panel = document.querySelector(".gamma-panel"), state = $("gamma-state"), message = $("gamma-message");
     if (!panel || !state || !message) return;
-    optionsPayload = null;
     try {
-      const result = await getJSON("serviceGammaV2", endpoints.gamma, 5 * 60 * 1000, 30_000);
+      const result = await getJSON("serviceGammaV2", endpoints.gamma, 5 * 60 * 1000, 30_000, prefetched);
+      optionsPayload = null;
       const data = result.value || {};
       if (data.schemaVersion === 2 && data.venue === "Deribit" && Array.isArray(data.oiByStrike)) optionsPayload = data;
       const successAt = Date.parse(data.lastSuccessAt || data.asOf || ""), gammaAgeMs = Number.isFinite(successAt) ? Date.now() - successAt : NaN;
@@ -617,9 +593,9 @@
     $("market-insight").querySelector("span").textContent = `${parts.join("；")}。${warning}`;
   }
 
-  async function loadMarketService() {
+  async function loadMarketService(prefetched = null) {
     try {
-      const result = await getJSON("serviceMarket", endpoints.market, 120000, 10000);
+      const result = await getJSON("serviceMarket", endpoints.market, 120000, 10000, prefetched);
       const payload = result.value || {}, data = payload.data || {}, assets = data.assets || {}, updatedAt = payload.updatedAt || Date.now();
       const state = payloadState(payload, result.state);
       setState("price", state, updatedAt); setState("market", state, updatedAt); updateCompositeMarketTime();
@@ -664,9 +640,9 @@
     }
   }
 
-  async function loadSentimentService() {
+  async function loadSentimentService(prefetched = null) {
     try {
-      const result = await getJSON("serviceSentiment", endpoints.sentiment, 900000, 10000);
+      const result = await getJSON("serviceSentiment", endpoints.sentiment, 900000, 10000, prefetched);
       const payload = result.value || {}, data = payload.data || {}, updatedAt = payload.updatedAt || Date.now();
       setState("sentiment", payloadState(payload, result.state), updatedAt); updateCompositeMarketTime();
       fearGreedRows = (Array.isArray(data.rows) ? data.rows : []).map(row => ({ date: String(row.date || "").slice(0, 10), value: num(row.value), rawLabel: row.label || "" })).filter(row => row.date && Number.isFinite(row.value)).sort((a, b) => a.date.localeCompare(b.date));
@@ -683,9 +659,9 @@
     } catch { setState("sentiment", "error", Date.now()); updateCompositeMarketTime(); renderTodayMarketState(); }
   }
 
-  async function loadOnchainService() {
+  async function loadOnchainService(prefetched = null) {
     try {
-      const result = await getJSON("serviceOnchain", endpoints.onchain, 300000, 10000);
+      const result = await getJSON("serviceOnchain", endpoints.onchain, 300000, 10000, prefetched);
       const payload = result.value || {}, data = payload.data || {}, state = payloadState(payload, result.state);
       setState("onchain", state, payload.updatedAt || Date.now());
       const height = num(data.height), fast = num(data.feeFast), hour = num(data.feeHour), mempoolCount = num(data.mempoolCount), mempoolSize = num(data.mempoolSize), rawMempoolUnit = data.mempoolUnit || "";
@@ -704,9 +680,9 @@
     } catch { setState("onchain", "error", Date.now()); $("onchain-insight").querySelector("span").textContent = "链上数据服务当前不可达，暂不判断拥堵程度。"; }
   }
 
-  async function loadDefiService() {
+  async function loadDefiService(prefetched = null) {
     try {
-      const result = await getJSON("serviceDefi", endpoints.defi, 900000, 10000);
+      const result = await getJSON("serviceDefi", endpoints.defi, 900000, 10000, prefetched);
       const payload = result.value || {}, data = payload.data || {};
       setState("defi", payloadState(payload, result.state), payload.updatedAt || Date.now());
       const totalTvl = num(data.totalTvl), top = data.topChain || {};
@@ -975,10 +951,10 @@
     $("health-checked").textContent = checkedAt ? `${payload?._browserCached ? "浏览器缓存检查" : isSnapshotMode ? "快照生成于" : "检查于"} ${shortUpdatedAt(checkedAt)}` : "动态健康接口暂不可用";
   }
 
-  async function loadHealth() {
+  async function loadHealth(prefetched = null) {
     const button = $("health-refresh"); if (button) { button.disabled = true; button.textContent = isSnapshotMode ? "读取中…" : "检查中…"; }
     try {
-      const result = await getJSON("serviceHealth", `${endpoints.health}?t=${Date.now()}`, 60000, 20000);
+      const result = await getJSON("serviceHealth", endpoints.health, 60000, 20000, prefetched);
       const payload = result.value || {};
       latestHealthPayload = { ...payload, _browserCached: result.state === "cached", _browserCachedAt: result.cachedAt };
       setState("health", payloadState(payload, result.state), payload.data?.checkedAt || payload.updatedAt || Date.now());
@@ -1342,32 +1318,41 @@
 
   async function init() {
     applyDeploymentLabels(); setupMobileChartDefaults(); setupChartControls(); updateStaticLabels(); renderStatic(); renderOptions(); renderSeasonality();
-    if (await reloadForNewerSnapshot()) return;
-    if ($("health-refresh")) $("health-refresh").addEventListener("click", loadHealth);
-    await Promise.allSettled([loadMarketService(), loadSentimentService(), loadOnchainService(), loadDefiService(), loadGamma(), loadHealth()]);
-    refreshMarketSectionState();
-    finishStatus();
+    if (isSnapshotMode) {
+      const cachedLoads = [
+        ["serviceMarket", 120000, loadMarketService], ["serviceSentiment", 900000, loadSentimentService],
+        ["serviceOnchain", 300000, loadOnchainService], ["serviceDefi", 900000, loadDefiService],
+        ["serviceGammaV2", 300000, loadGamma], ["serviceHealth", 60000, loadHealth]
+      ].flatMap(([key, ttl, apply]) => { const cached = dataClient.read(key, ttl); return cached ? [apply(cached)] : []; });
+      await Promise.allSettled(cachedLoads);
+      finishStatus();
+    }
+    if ($("health-refresh")) $("health-refresh").addEventListener("click", () => refreshLiveDataInBackground());
+    await refreshLiveDataInBackground();
   }
   let resizeTimer, viewportWidth = document.documentElement.clientWidth;
-  let backgroundRefreshInFlight = false, lastBackgroundRefreshAt = Date.now();
+  let backgroundRefreshInFlight = null, lastBackgroundRefreshAt = Date.now();
   async function refreshLiveDataInBackground() {
-    if (backgroundRefreshInFlight) return;
-    backgroundRefreshInFlight = true;
+    if (backgroundRefreshInFlight) return backgroundRefreshInFlight;
+    backgroundRefreshInFlight = (async () => {
     lastBackgroundRefreshAt = Date.now();
     try {
-      if (await reloadForNewerSnapshot()) return;
+      await reloadForNewerSnapshot();
       await Promise.allSettled([loadMarketService(), loadSentimentService(), loadOnchainService(), loadDefiService(), loadGamma(), loadHealth()]);
       refreshMarketSectionState();
       finishStatus();
-      const failed = ["market", "sentiment", "onchain", "defi", "gamma", "health"].some(group => sourceStates[group] === "error");
+      const failed = ["market", "sentiment", "onchain", "defi", "gamma", "health"].some(group => ["error", "cached"].includes(sourceStates[group]));
       if (failed) lastBackgroundRefreshAt = Date.now() - 10 * 60 * 1000;
     } finally {
-      backgroundRefreshInFlight = false;
+      backgroundRefreshInFlight = null;
       renderTodayMarketState();
       if (latestHealthPayload) renderHealth(latestHealthPayload);
     }
+    })();
+    return backgroundRefreshInFlight;
   }
   setInterval(() => {
+    if (document.visibilityState === "hidden") return;
     const refreshInterval = isSnapshotMode ? snapshotRefreshIntervalMs : 15 * 60 * 1000;
     if (Date.now() - lastBackgroundRefreshAt >= refreshInterval) void refreshLiveDataInBackground();
     else {
@@ -1380,7 +1365,7 @@
     if (document.visibilityState === "visible" && Date.now() - lastBackgroundRefreshAt >= refreshInterval) void refreshLiveDataInBackground();
   });
   window.addEventListener("pageshow", event => {
-    if (event.persisted) void refreshLiveDataInBackground();
+    if (event.persisted && document.visibilityState !== "hidden") void refreshLiveDataInBackground();
   });
   window.addEventListener("resize", () => {
     const nextWidth = document.documentElement.clientWidth;

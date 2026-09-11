@@ -64,18 +64,7 @@
   }
   function toast(text) { put("experience-toast", text); $("experience-toast").classList.add("show"); setTimeout(() => $("experience-toast").classList.remove("show"), 4000); }
   function setupOptions() {
-    const section = $("options"), tabs = section.querySelector('[data-mobile-tabs="options-detail"]');
-    tabs.insertAdjacentHTML("afterbegin", '<button type="button" data-mobile-tab-value="oi" aria-selected="true">持仓位置</button>');
-    tabs.insertAdjacentHTML("beforeend", '<button type="button" data-mobile-tab-value="vol">波动定价</button>');
-    tabs.before(Object.assign(document.createElement("div"), { className: "options-control", innerHTML: '<label for="expiry-select">到期日 <select id="expiry-select" aria-label="期权到期日"><option>等待数据</option></select></label><span id="options-asof" class="quiet-date">Deribit · 等待快照</span>' }));
-    tabs.insertAdjacentHTML("afterend", '<article class="panel oi-panel" data-mobile-tab-panel="options-detail" data-mobile-tab-value="oi"><div class="micro-head"><h3>持仓集中在哪里？</h3><button class="chart-enlarge" type="button" data-enlarge="oi-chart">放大 ↗</button></div><p class="detail-conclusion" id="oi-conclusion">等待有效的全行权价持仓样本</p><div class="wall-cards"><div><button class="term" data-note="walls" type="button">看涨墙</button><strong id="call-wall">—</strong><small id="call-distance">—</small></div><div><button class="term" data-note="walls" type="button">看跌墙</button><strong id="put-wall">—</strong><small id="put-distance">—</small></div></div><div class="chart-legend"><span class="call-color">↑ Call 持仓</span><span class="put-color">↓ Put 持仓</span><span>数量：BTC</span></div><canvas id="oi-chart" height="300" aria-label="按行权价展示 Call 向上、Put 向下的 BTC 未平仓量" tabindex="0"></canvas><output class="chart-readout" id="oi-readout">左右移动查看行权价与持仓</output><div class="condition"><span>接下来观察</span><p>关注价格与集中点的距离、以及下一次快照中持仓峰值是否迁移。</p></div><p class="pro-only" id="oi-sample"></p><button class="term" data-note="walls" type="button">计算方法与样本边界</button></article><article class="panel volatility-panel" data-mobile-tab-panel="options-detail" data-mobile-tab-value="vol"><div class="micro-head"><h3>市场计入了多少波动？</h3><button class="term" data-note="volatility" type="button">波动口径</button></div><p id="vol-conclusion" class="detail-conclusion">等待有效平值 IV，不用全链中位数替代</p><canvas id="vol-chart" height="240" aria-label="平值隐含波动与近似同期限历史波动比较"></canvas><div class="expected-range" id="vol-range">模型区间暂缺</div><div class="condition"><span>接下来观察</span><p>比较后续实际波动与市场定价；IV 高于历史波动，本身并不等于期权昂贵。</p></div><p class="quiet-date" id="vol-sample"></p></article>');
-    const ibit = section.querySelector('.options-panel');
-    if ($('options-static-state')) ibit.prepend($('options-static-state'));
-    ibit.prepend(section.querySelector('.options-cards'));
     $("expiry-select").addEventListener("change", () => { selectedExpiry = $("expiry-select").value; hoverIndex = null; render(); });
-    const heading = section.querySelector('.section-head h2'); heading.textContent = "期权的关键位置与波动定价";
-    const paragraph = section.querySelector('.section-head p:not(.section-code)'); if (paragraph) paragraph.textContent = "先看持仓，再验证模型；Deribit 与 IBIT 分开统计。";
-    section.querySelector('.gamma-panel .panel-title h3').innerHTML = '<button class="term" data-note="gamma" type="button">Gamma 敞口 · 模型代理</button>';
   }
   function tabSelect(group, value, focus = false) {
     const list = document.querySelector(`[data-mobile-tabs="${group}"]`); if (!list) return;
@@ -219,7 +208,7 @@
     put('scan-options-evidence', oiReady && (walls.call || walls.put) ? `Call ${usd(walls.call?.strike)} · Put ${usd(walls.put?.strike)}` : '等待完整持仓样本');
     put('scan-vol', gammaReady && iv > 0 ? iv.toFixed(1) + '%' : '待确认');
     put('scan-vol-evidence', gammaReady && iv > 0 ? `约 ${Math.round(days)} 天平值 IV · 尚不判断贵贱` : '等待所选期限平值 IV');
-    put('position-date', `${state.provider || '现货'} ${date(state.priceAsOf)} · 均线截至 ${state.candles?.at(-1)?.date || '—'}${gammaReady ? ` · 期权 ${g.expiry} 到期 / ${date(state.gamma?.asOf)}` : ' · 期权位置待更新'}`);
+    put('position-date', `${state.provider || '现货'} ${date(state.priceAsOf)}${state.sourceStates?.market === 'cached' ? ' · 上次成功数据' : ''} · 均线截至 ${state.candles?.at(-1)?.date || '—'}${gammaReady ? ` · 期权 ${g.expiry} 到期 / ${date(state.gamma?.asOf)}` : ' · 期权位置待更新'}`);
     put('trend-conclusion', t.label); put('trend-date', `Gate BTC/USDT · 已收盘日 K 截至 ${state.candles?.at(-1)?.date || '—'} · 抓取 ${date(state.candleAsOf)}`);
     put('trend-observe', t.ready ? `观察后续日线收盘能否保持在 20日均线 ${usd(t.a)} ${t.close > t.a ? '上方' : '下方'}，以及 20日与60日均线的排列是否改变。均线会随每日新收盘价更新。` : '数据未齐备或已超出新鲜度窗口，暂不输出方向。');
     put('trend-pro', t.ready ? `MA20 ${usd(t.a)} / MA60 ${usd(t.b)}；已收盘价距 MA20 ${pct((t.close / t.a - 1) * 100)}。` : '均线须由完整连续样本计算。');
@@ -227,7 +216,7 @@
     const select = $('expiry-select');
     if (choices.length && select.dataset.choices !== choices.map(r => r.expiry).join()) { select.dataset.choices = choices.map(r => r.expiry).join(); select.innerHTML = choices.map(r => `<option value="${esc(r.expiry)}">${esc(r.expiry)}</option>`).join(''); if (choices.some(r => r.expiry === selectedExpiry)) select.value = selectedExpiry; else { selectedExpiry = state.gamma.expiry; select.value = selectedExpiry; } }
     select.disabled = !choices.length;
-    put('options-asof', `Deribit · ${date(state.gamma?.asOf)}${gammaReady ? state.gamma?.stale ? ' · 最近成功快照' : '' : ' · 历史值 / 待更新'}`);
+    put('options-asof', `Deribit · ${date(state.gamma?.asOf)}${gammaReady ? (state.gamma?.stale || state.sourceStates?.gamma === 'cached') ? ' · 最近成功快照' : '' : ' · 历史值 / 待更新'}`);
     put('oi-conclusion', oiReady && (walls.call || walls.put) ? `Call 集中在 ${usd(walls.call?.strike)}，Put 集中在 ${usd(walls.put?.strike)}。` : '样本待补齐或待更新，仅展示已知持仓，不判断完整关键位置。');
     put('call-wall', usd(walls.call?.strike)); put('put-wall', usd(walls.put?.strike));
     put('call-distance', !oiReady ? '已知样本峰值 · 非完整结论' : walls.call && g.spot ? `距指数 ${pct((walls.call.strike / g.spot - 1) * 100)}` : '距离暂缺');
@@ -272,8 +261,6 @@
   }
   function init() {
     api = window.PULSE_RUNTIME; if (!api) return;
-    document.body.classList.add('experience');
-    document.querySelector('.topbar').insertAdjacentHTML('beforeend', '<div class="experience-tools"><button type="button" id="view-mode" aria-pressed="false">新手模式</button><button type="button" id="refresh-data">刷新</button><button type="button" id="share-view">分享 ↗</button></div>');
     setupOptions(); setupTabs(); setupNotes();
     document.querySelector('[data-overlay-chart="etfRolling"]').checked = true;
     document.addEventListener('click', e => { const a = e.target.closest('a[href^="#"]'); if (a && !e.ctrlKey && !e.metaKey && !e.shiftKey) { e.preventDefault(); if ($('note-sheet').open) closeSheet(); navigate(a.hash); } const zoom = e.target.closest('[data-enlarge]'); if (zoom) enlarge(zoom.dataset.enlarge, zoom); });
@@ -281,17 +268,20 @@
     document.addEventListener('keydown', e => { if(e.key === 'Escape' && document.body.classList.contains('nav-open')) { e.preventDefault(); setDrawer(false); } });
     $('more-views').addEventListener('click', () => showSheet('更多观察', '<div class="more-links"><a href="#market">情绪与市场 ↗</a><a href="#onchain">链上拥堵 ↗</a><a href="#seasonality">历史季节性 ↗</a><a href="#defi">稳定币流动性 ↗</a><a href="#health">数据健康 ↗</a><a href="#methodology">来源与基本面 ↗</a></div>'));
     $('view-mode').addEventListener('click', () => { const pro = document.body.classList.toggle('professional'); put('view-mode', pro ? '专业模式' : '新手模式'); $('view-mode').setAttribute('aria-pressed', String(pro)); try { localStorage.setItem('pulse-pro-mode', pro ? '1' : '0'); } catch {} });
-    try { if (localStorage.getItem('pulse-pro-mode') === '1') $('view-mode').click(); } catch {}
+    try { if (localStorage.getItem('pulse-pro-mode') === '1') { document.body.classList.add('professional'); put('view-mode', '专业模式'); $('view-mode').setAttribute('aria-pressed', 'true'); } } catch {}
     $('refresh-data').addEventListener('click', async () => { const b = $('refresh-data'); b.disabled = true; b.textContent = '刷新中'; try { await api.refresh(); render(); toast('已检查最新数据，截止日期见各模块'); } finally { b.disabled = false; b.textContent = '刷新'; } });
     $('share-view').addEventListener('click', () => share().catch(() => toast('分享未完成，可复制地址栏链接')));
     $('trend-ranges').addEventListener('click', e => { const b = e.target.closest('[data-trend-range]'); if (!b) return; trendRange = Number(b.dataset.trendRange); hoverIndex = null; document.querySelectorAll('[data-trend-range]').forEach(x => { const on = x === b; x.classList.toggle('active',on); x.setAttribute('aria-pressed',String(on)); }); put('trend-readout','左右移动查看某日价格 · 上下滑动浏览页面'); drawTrend(); });
     $('zoom-close').addEventListener('click',closeZoom); $('zoom-dialog').addEventListener('cancel',e => { e.preventDefault(); closeZoom(); });
-    document.querySelectorAll('canvas:not(#position-chart):not(#trend-chart):not(#oi-chart):not(#vol-chart)').forEach(canvas => { if (!canvas.id || canvas.id === 'fng-gauge') return; const b = document.createElement('button'); b.type='button'; b.className='chart-enlarge'; b.dataset.enlarge=canvas.id; b.textContent='放大图表 ↗'; canvas.before(b); });
     ['trend-chart','oi-chart'].forEach(bindChartInput);
     window.addEventListener('popstate', () => navigate(location.hash,false));
     window.addEventListener('pulse:update', () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(render); });
     window.addEventListener('resize', () => { setDrawer(document.body.classList.contains('nav-open'),false); cancelAnimationFrame(frame); frame=requestAnimationFrame(drawAll); });
     navigate(location.hash || '#overview', false); render();
+    document.querySelectorAll('.experience-tools button').forEach(button => { button.disabled = false; });
+    document.documentElement.classList.add('app-ready');
+    document.documentElement.classList.remove('init-failed');
+    clearTimeout(window.PULSE_BOOT_TIMER);
   }
   document.addEventListener('DOMContentLoaded', init, { once:true });
 })();

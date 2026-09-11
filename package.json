@@ -12,6 +12,7 @@
     "test:deribit": "node scripts/test-deribit-options.mjs",
     "test:experience": "node scripts/test-experience.mjs",
     "test:structure": "node scripts/test-frontend-structure.mjs",
+    "test:snapshots": "node scripts/test-snapshot-client.mjs",
     "check:live": "node scripts/check-live-services.mjs",
     "schedule": "node scripts/manage-schedule.mjs status"
   },

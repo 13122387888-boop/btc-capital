@@ -78,3 +78,26 @@ body.experience *{box-sizing:border-box}
 .zoom-dialog #zoom-content>.chart-stage{width:100%;height:100%;flex:1;min-width:0}
 #vol-chart{height:290px}.experience .options-panel>#options-static-state{margin:15px 18px 0}
 @media(max-width:620px){.scan-conclusion{min-height:0;margin:12px 0;font-size:16px}.scan-heading{margin-bottom:15px}#position-chart{height:137px}.scan-list>a{min-height:68px;padding-top:9px;padding-bottom:9px}.scan-list{margin-top:12px}.scan-row-copy small{font-size:12px}.scan-bottom{margin-top:13px}.position-panel .quiet-date{font-size:11px}}
+/* The first paint already uses the requested route; JS later owns normal navigation. */
+html.js:not(.app-ready) main > .section { display: none !important; }
+html.js:not(.app-ready)[data-initial-view="overview"] #overview,
+html.js:not(.app-ready)[data-initial-view="trend"] #trend,
+html.js:not(.app-ready)[data-initial-view="etf"] #etf,
+html.js:not(.app-ready)[data-initial-view="market"] #market,
+html.js:not(.app-ready)[data-initial-view="onchain"] #onchain,
+html.js:not(.app-ready)[data-initial-view="options"] #options,
+html.js:not(.app-ready)[data-initial-view="seasonality"] #seasonality,
+html.js:not(.app-ready)[data-initial-view="defi"] #defi,
+html.js:not(.app-ready)[data-initial-view="health"] #health,
+html.js:not(.app-ready)[data-initial-view="methodology"] #methodology { display: block !important; }
+.boot-notice { position: fixed; z-index: 100; top: max(80px, env(safe-area-inset-top)); left: 16px; right: 16px; margin: 0 auto; max-width: 680px; padding: 20px; border: 1px solid #697957; border-radius: 12px; background: #1b251d; color: #edf0e7; font-size: 16px; line-height: 1.6; }
+.boot-notice a { color: #e7bb64; text-decoration: underline; margin-left: 6px; }
+.boot-error { display: none; }
+html.init-failed .boot-error { display: block; }
+html.no-js main, html.no-js .topbar, html.no-js .rail, html.no-js .bottom-nav { display: none !important; }
+.experience-tools button:disabled { opacity: .55; cursor: wait; }
+html.js:not(.app-ready) #options [data-mobile-tab-panel="options-detail"] { display: none !important; }
+html.js:not(.app-ready)[data-initial-tab="oi"] #options .oi-panel,
+html.js:not(.app-ready)[data-initial-tab="vol"] #options .volatility-panel,
+html.js:not(.app-ready)[data-initial-tab="gamma"] #options .gamma-panel,
+html.js:not(.app-ready)[data-initial-tab="ibit"] #options .options-panel { display: block !important; }

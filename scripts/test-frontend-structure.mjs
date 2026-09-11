@@ -4,6 +4,11 @@ import { readFile } from "node:fs/promises";
 const files = ["index.html", "app.js", "experience.js", "styles.css", "enhancements.css", "experience.css"];
 const sources = Object.fromEntries(await Promise.all(files.map(async file => [file, await readFile(new URL(`../${file}`, import.meta.url), "utf8")])));
 const index = sources["index.html"];
+assert.ok(index.includes('<body class="experience">') && index.includes('<noscript>') && index.includes('dataset.initialView'), '首屏样式、初始路由和无 JS 提示必须直接可用');
+for (const id of ['view-mode', 'refresh-data', 'share-view', 'expiry-select', 'oi-chart', 'vol-chart']) {
+  assert.ok(index.includes(`id="${id}"`), `${id} 必须有静态首屏骨架`);
+}
+assert.ok(sources['app.js'].includes('if (document.visibilityState === "hidden") return;'), '隐藏页面必须暂停轮询');
 const htmlIds = [...index.matchAll(/\bid="([\w-]+)"/g)].map(match => match[1]);
 assert.equal(new Set(htmlIds).size, htmlIds.length, "index.html 不得包含重复 ID");
 

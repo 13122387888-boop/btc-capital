@@ -58,6 +58,7 @@ jobs:
         run: |
           npm run test:experience
           npm run test:structure
+          npm run test:snapshots
 
       - name: Build safe Pages artifact
         run: npm run build:pages

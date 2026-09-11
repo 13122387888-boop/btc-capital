@@ -1,21 +1,15 @@
 import { readFile, readdir, stat } from "node:fs/promises";
 import { join, relative, resolve, sep } from "node:path";
 import vm from "node:vm";
+import { STATIC_FILES, VERSIONED_ASSETS, assetVersion } from "./lib/public-assets.mjs";
 
 const projectDir = resolve(new URL("../", import.meta.url).pathname.replace(/^\/(?:([A-Za-z]:))/, "$1"));
 const outputDir = join(projectDir, "dist-pages");
 const snapshotNames = ["market", "sentiment", "onchain", "defi", "gamma", "health"];
 const expectedFiles = new Set([
   ".nojekyll",
-  "app.js",
-  "data.js",
+  ...STATIC_FILES,
   "deployment.js",
-  "enhancements.css",
-  "index.html",
-  "styles.css",
-  "experience.css",
-  "experience.js",
-  "experience-math.js",
   "snapshots/manifest.json",
   "snapshots/static.json",
   ...snapshotNames.map(name => `snapshots/${name}.json`),
@@ -58,7 +52,11 @@ async function main() {
   check(index.includes("Deribit") && !index.includes("BYBIT BTC OPTIONS"), "Gamma 页面来源未切换到 Deribit");
   check(/stablecoinFlatPercent:\s*0\.5/.test(app) && /stablecoinStrongPercent:\s*2/.test(app) && app.includes("28–35 天"), "稳定币阈值边界或窗口校验缺失");
   check(index.includes("交易日净流") && index.includes("20日均线") && index.includes("60日均线"), "资金交易日与日线均线口径缺失");
-  check(["styles.css", "enhancements.css", "experience.css", "deployment.js", "data.js", "experience-math.js", "experience.js", "app.js"].every(asset => index.includes(`./${asset}?v=`)), "Pages 静态资源缺少构建版本号");
+  for (const asset of VERSIONED_ASSETS) {
+    check(index.includes(`./${asset}?v=${assetVersion(await readFile(join(outputDir, asset)))}`), `${asset} 缺少正确的内容指纹`);
+  }
+  check(index.indexOf('./snapshot-client.js') < appIndex, '缓存客户端必须先于应用加载');
+  check(index.includes('class="experience"') && index.includes('<noscript>') && index.includes('og:image') && index.includes('theme-color'), '首屏降级或分享信息缺失');
   check(index.includes('id="scan-home"') && index.includes('id="trend-chart"') && index.includes('id="note-sheet"'), "缺少扫描首页、价格结构或说明弹层");
   check(!app.includes("window.location.replace"), "数据更新不得触发整页导航");
   check(app.includes("snapshotRefreshIntervalMs") && app.includes("reloadForNewerSnapshot") && app.includes("./snapshots/manifest.json") && app.includes('document.addEventListener("visibilitychange"') && app.includes('window.addEventListener("pageshow"'), "Pages 快照页面缺少自动续取与移动端恢复刷新");
@@ -76,6 +74,7 @@ async function main() {
     check(payload && typeof payload === "object" && !Array.isArray(payload), `${name}.json 不是对象`);
     check(["live", "partial", "unavailable"].includes(payload.status), `${name}.json 状态无效：${payload.status}`);
     check(payload.snapshot?.generatedAt === deployment.generatedAt, `${name}.json 生成时间不一致`);
+    if (name === 'defi') check((payload.data?.stableSeries?.length || 0) <= 740, 'DeFi 快照超出图表历史窗口');
   }
 
   const manifest = JSON.parse(await readFile(join(outputDir, "snapshots", "manifest.json"), "utf8"));

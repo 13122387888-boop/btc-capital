@@ -3,23 +3,13 @@ import { copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
+import { STATIC_FILES, VERSIONED_ASSETS, assetVersion, compactSnapshot } from "./lib/public-assets.mjs";
 
 const PROJECT_DIR = fileURLToPath(new URL("../", import.meta.url));
 const OUTPUT_DIR = resolve(PROJECT_DIR, "dist-pages");
 const TEMP_DIR = resolve(PROJECT_DIR, `.dist-pages.${process.pid}.tmp`);
 const PORT = Number(process.env.PULSE_PAGES_PORT || 43173);
 const BASE_URL = `http://127.0.0.1:${PORT}`;
-
-const STATIC_FILES = [
-  "index.html",
-  "app.js",
-  "data.js",
-  "styles.css",
-  "enhancements.css",
-  "experience.js",
-  "experience-math.js",
-  "experience.css",
-];
 
 const SNAPSHOTS = [
   ["market", "/api/data/market"],
@@ -152,14 +142,6 @@ async function main() {
   await rm(TEMP_DIR, { recursive: true, force: true });
   await mkdir(join(TEMP_DIR, "snapshots"), { recursive: true });
   await copyStaticFiles(TEMP_DIR);
-  const assetVersion = encodeURIComponent(generatedAt);
-  const indexPath = join(TEMP_DIR, "index.html");
-  let versionedIndex = await readFile(indexPath, "utf8");
-  for (const asset of ["styles.css", "enhancements.css", "experience.css", "deployment.js", "data.js", "experience-math.js", "experience.js", "app.js"]) {
-    versionedIndex = versionedIndex.replace(`./${asset}`, `./${asset}?v=${assetVersion}`);
-  }
-  await writeFile(indexPath, versionedIndex, "utf8");
-
   const endpointConfig = Object.fromEntries(
     [...SNAPSHOTS, ["health", "/api/health"]].map(([name]) => [name, `./snapshots/${name}.json`]),
   );
@@ -170,6 +152,13 @@ async function main() {
     endpoints: endpointConfig,
   }, null, 2)});\n`;
   await writeFile(join(TEMP_DIR, "deployment.js"), deploymentSource, "utf8");
+  const indexPath = join(TEMP_DIR, "index.html");
+  let versionedIndex = await readFile(indexPath, "utf8");
+  for (const asset of VERSIONED_ASSETS) {
+    const version = assetVersion(await readFile(join(TEMP_DIR, asset)));
+    versionedIndex = versionedIndex.replace(`./${asset}`, `./${asset}?v=${version}`);
+  }
+  await writeFile(indexPath, versionedIndex, "utf8");
   await writeFile(join(TEMP_DIR, ".nojekyll"), "", "utf8");
 
   const manifest = {
@@ -181,17 +170,17 @@ async function main() {
   for (const [name] of [...SNAPSHOTS, ["health", "/api/health"]]) {
     const result = captured[name];
     const payload = {
-      ...publicSnapshotPayload(name, result.payload, generatedAt),
+      ...compactSnapshot(name, publicSnapshotPayload(name, result.payload, generatedAt)),
       snapshot: { generatedAt, httpStatusAtCapture: result.httpStatus },
     };
-    await writeFile(join(TEMP_DIR, "snapshots", `${name}.json`), `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+    await writeFile(join(TEMP_DIR, "snapshots", `${name}.json`), JSON.stringify(payload), "utf8");
     manifest.snapshots[name] = {
       status: result.payload.status || "unknown",
       updatedAt: result.payload.updatedAt || result.payload.asOf || null,
       httpStatusAtCapture: result.httpStatus,
     };
   }
-  await writeFile(join(TEMP_DIR, "snapshots", "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+  await writeFile(join(TEMP_DIR, "snapshots", "manifest.json"), JSON.stringify(manifest), "utf8");
   const staticSandbox = { window: {}, Object };
   vm.runInNewContext(await readFile(join(PROJECT_DIR, "data.js"), "utf8"), staticSandbox);
   await writeFile(join(TEMP_DIR, "snapshots", "static.json"), JSON.stringify({ generatedAt, data: staticSandbox.window.PULSE_STATIC_DATA }), "utf8");

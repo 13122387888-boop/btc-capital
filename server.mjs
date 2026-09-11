@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { fetchDeribitGamma, isUsableGammaPayload } from './scripts/lib/deribit-options.mjs';
 
 const root = fileURLToPath(new URL('.', import.meta.url));
-const mime = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8' };
+const mime = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png' };
 
 const GAMMA_CACHE_MS = 5 * 60 * 1000;
 const GAMMA_LAST_GOOD_MS = 24 * 60 * 60 * 1000;
