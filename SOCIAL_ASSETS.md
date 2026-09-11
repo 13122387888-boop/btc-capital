@@ -1,6 +1,7 @@
 # Sharing asset provenance
 
 - `og-image.png`: generated with the built-in imagegen tool; one request, no retries. Dimensions: 1733 × 908. Checked against final title and Chinese subtitle. This static brand preview deliberately contains no prices, dates or market claims.
+- `og-image.jpg`: same artwork and 1733 × 908 dimensions, encoded from the original PNG with JPEG quality 90, 4:4:4 chroma and mozjpeg optimization. 86,919 bytes versus 950,607 bytes (90.9% smaller). OG / Twitter now reference this file; the original PNG is retained for existing shared URLs. No new artwork or market information was generated.
 - `favicon.svg`: code-native Bitcoin glyph in the site's existing deep-green / gold palette.
 - `apple-touch-icon.png`: 180 × 180 PNG exported from that SVG; no runtime rendering dependency.
 

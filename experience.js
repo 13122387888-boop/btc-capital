@@ -1,6 +1,6 @@
 (() => {
   "use strict";
-  const $ = id => document.getElementById(id), M = globalThis.PulseMath;
+  const $ = id => document.getElementById(id), M = globalThis.PulseMath, T = globalThis.PulseChartData;
   const esc = v => String(v ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
   const usd = v => Number.isFinite(v) ? "$" + Math.round(v).toLocaleString("en-US") : "—";
   const pct = v => Number.isFinite(v) ? `${v > 0 ? "+" : ""}${v.toFixed(1)}%` : "—";
@@ -29,6 +29,7 @@
   function validGamma(g) {
     return g && !state.snapshotStale && M.fresh(state.gamma?.asOf) && g.oiStatus !== "unavailable" && g.expiryTimestamp > Date.now();
   }
+  function gammaModelReady(g) { return validGamma(g) && g?.gammaStatus !== 'unavailable' && g?.byStrike?.length > 0; }
   function trendModel() {
     const ready = !["pending", "error", "stale"].includes(state.states?.trend?.dataState) && M.fresh(state.priceAsOf) && !state.snapshotStale;
     const latestDay = Date.parse(state.candles?.at(-1)?.date || ""), age = Date.now() - latestDay;
@@ -54,13 +55,69 @@
   function showSheet(title, html) {
     closeZoom(); lastFocus = document.activeElement; sheetScroll = window.scrollY;
     put("sheet-title", title); $("sheet-content").innerHTML = html;
-    $("note-sheet").showModal(); document.body.classList.add("modal-open"); $("sheet-close").focus({ preventScroll: true });
+    $("note-sheet").showModal(); $("note-sheet").scrollTop = 0; document.body.classList.add("modal-open"); $("sheet-close").focus({ preventScroll: true });
   }
   function closeSheet() { $("note-sheet").close(); document.body.classList.remove("modal-open"); lastFocus?.focus({ preventScroll: true }); window.scrollTo({ top: sheetScroll, behavior: "instant" }); }
   function showNote(key) {
     const data = noteEntries[key]?.(); if (!data) return;
     const [title, intro, ...facts] = data;
     showSheet(title, `<p class="sheet-intro">${intro}</p><dl>${facts.map(([label, value]) => `<div><dt>${label}</dt><dd>${value}</dd></div>`).join("")}</dl>`);
+  }
+  function chartTable(id) {
+    state = api.read();
+    const gate = { name: 'Gate BTC/USDT 日 K', url: 'https://www.gate.com/docs/developers/apiv4/en/#market-candlesticks' };
+    const deribit = { name: 'Deribit BTC 反向期权', url: 'https://docs.deribit.com/api-reference/market-data/public-get_book_summary_by_currency' };
+    const g = dataset(), notes = [];
+    if (id === 'trend-chart') {
+      const rows = T.trendRows(state.candles || [], trendRange, M);
+      notes.push(`当前范围：最近 ${trendRange} 根已收盘日 K；UTC 日期。`, `日 K 截至 ${state.candles?.at(-1)?.date || '—'}；抓取 ${state.candleAsOf || '—'}。`, 'MA20 / MA60 用完整历史计算后截取；成交量单位 BTC。缺失为 —，CSV 留空。');
+      const walls = selectedLevels().filter(level => /墙/.test(level.name));
+      if (walls.length) notes.push(`图中持仓峰值：${walls.map(level => `${level.name} ${usd(level.value)}`).join('；')}；${g.expiry} 到期，期权数据时间 ${state.gamma?.asOf || '—'}。期权价格为 USD 指数代理，与 USDT 日 K 可能存在价差。`);
+      return T.create({ title: 'BTC 价格结构', columns: [['date', '日期'], ['open', '开盘（USDT）'], ['high', '最高（USDT）'], ['low', '最低（USDT）'], ['close', '收盘（USDT）'], ['volume', '成交量（BTC）', 4], ['ma20', 'MA20（USDT）'], ['ma60', 'MA60（USDT）']], rows, notes, sources: walls.length ? [gate, deribit] : [gate] });
+    }
+    if (id === 'oi-chart' || id === 'gamma-chart') {
+      notes.push(`所选到期日：${g?.expiry || '—'}；期权数据时间 ${state.gamma?.asOf || '—'}。`);
+      if (id === 'oi-chart') {
+        notes.push(validGamma(g) && g?.oiStatus === 'live' ? '所选期限已知非负 OI；Call / Put 均为正数量，Put 向下仅为画法。' : '历史值 / 已知样本；不据此恢复当前完整持仓墙结论。', `OI 合约覆盖 ${Number.isFinite(g?.oiCoverage?.ratio) ? (g.oiCoverage.ratio * 100).toFixed(1) + '%' : '—'}。零持仓行权价与图表一致，不列入。`);
+        return T.create({ title: '期权持仓位置', columns: [['strike', '行权价（USD）'], ['callOi', 'Call OI（BTC）', 4], ['putOi', 'Put OI（BTC）', 4]], rows: T.oiRows(g), notes, sources: [deribit] });
+      }
+      const ready = gammaModelReady(g);
+      notes.push('模型范围：指数代理价上下 25%；Call 正、Put 负是代理假设，不是实际做市商净头寸。', ready ? `模型合约覆盖 ${Number.isFinite(g.coverage) ? (g.coverage * 100).toFixed(1) + '%' : '—'}；与当前图表使用同一份期限样本。` : '所选期限模型待更新或不可用；不借用其他到期日数据。');
+      return T.create({ title: 'Gamma 模型敞口', columns: [['strike', '行权价（USD）'], ['callGex', 'Call GEX（USD / 1%）'], ['putGex', 'Put GEX（USD / 1%）'], ['netGex', '净 GEX（USD / 1%）']], rows: ready ? g.byStrike : [], notes, sources: [deribit] });
+    }
+    return api.readChart(id);
+  }
+  function showChartData(id) {
+    // Freeze the selected range, expiry and dates once: the CSV must match the visible table.
+    const model = chartTable(id); if (!model) return;
+    let page = 0; const pageSize = 25, pages = Math.max(1, Math.ceil(model.rows.length / pageSize));
+    const sourceLinks = model.sources.map(source => /^https?:\/\//i.test(source.url) ? `<a href="${esc(source.url)}" target="_blank" rel="noreferrer">${esc(source.name)}</a>` : esc(source.name)).join(' · ');
+    showSheet(`${model.title} · 数据`, `<div class="chart-data-meta">${model.notes.map(note => `<p>${esc(note)}</p>`).join('')}<p>来源：${sourceLinks}</p><p>打开时固定本次数据；关闭后重开可查看更新。</p></div><div class="chart-data-tools"><button type="button" id="chart-data-export" ${model.rows.length ? '' : 'disabled'}>导出全部 ${model.rows.length} 条 CSV</button><span id="chart-data-count" class="chart-data-count" role="status" aria-live="polite"></span></div><div class="chart-data-scroll" tabindex="0" role="region" aria-label="图表数据表，可左右滚动"><table class="chart-data-table"><caption>${esc(model.title)} · 数值按列标题单位显示，CSV 保留原始精度</caption><thead><tr>${model.columns.map(column => `<th scope="col">${esc(column.label)}</th>`).join('')}</tr></thead><tbody id="chart-data-body"></tbody></table></div><p class="chart-data-empty" ${model.rows.length ? 'hidden' : ''}>当前没有与图表对应的可用记录。</p><div class="chart-data-tools" ${pages > 1 ? '' : 'hidden'}><button type="button" id="chart-data-prev">上一页</button><span class="chart-data-count" id="chart-data-page"></span><button type="button" id="chart-data-next">下一页</button></div>`);
+    const renderPage = () => {
+      const start = page * pageSize, rows = model.rows.slice(start, start + pageSize);
+      $('chart-data-body').innerHTML = rows.map(row => `<tr>${row.map((value, index) => index === 0 ? `<th scope="row">${esc(T.format(value, model.columns[index].digits))}</th>` : `<td>${esc(T.format(value, model.columns[index].digits))}</td>`).join('')}</tr>`).join('');
+      put('chart-data-count', model.rows.length ? `${start + 1}–${start + rows.length} / 共 ${model.rows.length} 条` : '0 条');
+      put('chart-data-page', `${page + 1} / ${pages} 页`);
+      $('chart-data-prev').disabled = page === 0; $('chart-data-next').disabled = page === pages - 1;
+      if (document.activeElement === $('chart-data-prev') && page === 0 && pages > 1) $('chart-data-next').focus({ preventScroll: true });
+      else if (document.activeElement === $('chart-data-next') && page === pages - 1 && pages > 1) $('chart-data-prev').focus({ preventScroll: true });
+    };
+    $('chart-data-prev').addEventListener('click', () => { page = Math.max(0, page - 1); renderPage(); });
+    $('chart-data-next').addEventListener('click', () => { page = Math.min(pages - 1, page + 1); renderPage(); });
+    $('chart-data-export').addEventListener('click', () => {
+      const url = URL.createObjectURL(new Blob([T.toCSV(model)], { type: 'text/csv;charset=utf-8' }));
+      const link = document.createElement('a'); link.href = url; link.download = `btc-capital-${id}-${new Date().toISOString().slice(0, 10)}.csv`; link.hidden = true; document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 30000);
+    });
+    renderPage();
+  }
+  function setupDataTables() {
+    const ids = ['trend-chart', 'etf-rolling-chart', 'etf-chart', 'oi-chart', 'gamma-chart', 'fng-kline-chart', 'defi-chart', 'options-chart'];
+    ids.forEach(id => {
+      const canvas = $(id), zoom = document.querySelector(`[data-enlarge="${id}"]`); if (!canvas || !zoom) return;
+      const actions = document.createElement('span'); actions.className = 'chart-actions'; zoom.before(actions); actions.append(zoom);
+      const button = document.createElement('button'); button.type = 'button'; button.className = 'chart-data-button'; button.textContent = '查看数据'; button.setAttribute('aria-label', `查看数据：${canvas.getAttribute('aria-label')}`); button.setAttribute('aria-haspopup', 'dialog'); button.setAttribute('aria-controls', 'note-sheet');
+      button.addEventListener('click', () => showChartData(id)); actions.append(button);
+    });
   }
   function toast(text) { put("experience-toast", text); $("experience-toast").classList.add("show"); setTimeout(() => $("experience-toast").classList.remove("show"), 4000); }
   function setupOptions() {
@@ -153,17 +210,17 @@
   }
   function drawTrend() {
     const fit = canvasContext($('trend-chart')); if (!fit) return; const { ctx, w, h } = fit;
-    const all = state.candles || [], rows = all.slice(-trendRange); if (rows.length < 2) return empty(ctx, w, h, '日 K 数据暂不可用');
+    const rows = T.trendRows(state.candles || [], trendRange, M); if (rows.length < 2) return empty(ctx, w, h, '日 K 数据暂不可用');
     const levels = selectedLevels(), visibleLevels = levels.filter(l => /墙/.test(l.name));
     const bottom = h - 85, left = 8, right = w - 78, top = 30, pw = right - left;
-    const priceValues = [...rows.flatMap(r => [r.high, r.low]), ...visibleLevels.map(l => l.value), ...M.sma(all,20).slice(-rows.length).filter(Number.isFinite), ...M.sma(all,60).slice(-rows.length).filter(Number.isFinite)];
+    const priceValues = [...rows.flatMap(r => [r.high, r.low]), ...visibleLevels.map(l => l.value), ...rows.flatMap(r => [r.ma20, r.ma60]).filter(Number.isFinite)];
     const min = Math.min(...priceValues), max = Math.max(...priceValues), padding = (max - min || max * .1) * .1;
     const lo = min - padding, hi = max + padding, y = v => top + (hi - v) / (hi - lo) * (bottom - top), x = i => left + (i + .5) / rows.length * pw;
     ctx.textAlign = 'left';
     for (let i = 0; i < 5; i++) { const val = lo + (hi - lo) * i / 4, py = y(val); ctx.strokeStyle = C.grid; ctx.beginPath(); ctx.moveTo(left, py); ctx.lineTo(right, py); ctx.stroke(); ctx.fillStyle = C.muted; ctx.fillText(usd(val), right + 5, py + 4); }
     const maxVolume = Math.max(1, ...rows.map(r => r.volume || 0)), bar = Math.max(1, pw / rows.length * .65);
     rows.forEach((r, i) => { const px = x(i), color = r.close >= r.open ? C.green : C.red; ctx.strokeStyle = color; ctx.fillStyle = color; ctx.beginPath(); ctx.moveTo(px, y(r.high)); ctx.lineTo(px, y(r.low)); ctx.stroke(); ctx.fillRect(px - bar / 2, Math.min(y(r.open), y(r.close)), bar, Math.max(1, Math.abs(y(r.open) - y(r.close)))); if (Number.isFinite(r.volume)) { const vh = r.volume / maxVolume * 36; ctx.globalAlpha = .65; ctx.fillRect(px - bar / 2, h - 30 - vh, bar, vh); ctx.globalAlpha = 1; } });
-    for (const [n, color] of [[20, C.gold], [60, C.blue]]) { const values = M.sma(all, n).slice(-rows.length); ctx.strokeStyle = color; ctx.lineWidth = 1.6; ctx.beginPath(); let started = false; values.forEach((v, i) => { if (v === null) { started = false; return; } if (started) ctx.lineTo(x(i), y(v)); else ctx.moveTo(x(i), y(v)); started = true; }); ctx.stroke(); }
+    for (const [key, color] of [['ma20', C.gold], ['ma60', C.blue]]) { ctx.strokeStyle = color; ctx.lineWidth = 1.6; ctx.beginPath(); let started = false; rows.forEach((r, i) => { const v = r[key]; if (v == null) { started = false; return; } if (started) ctx.lineTo(x(i), y(v)); else ctx.moveTo(x(i), y(v)); started = true; }); ctx.stroke(); }
     let previous = -100;
     visibleLevels.sort((a,b) => b.value - a.value).forEach(l => { const py = y(l.value); ctx.setLineDash([5, 4]); ctx.strokeStyle = l.color; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(left, py); ctx.lineTo(right, py); ctx.stroke(); ctx.setLineDash([]); const labelY = Math.max(py - 6, previous + 18); previous = labelY; ctx.fillStyle = '#111812'; ctx.fillRect(9, labelY - 14, 153, 18); ctx.fillStyle = l.color; ctx.fillText(`${l.name} ${usd(l.value)}`, 12, labelY); });
     ctx.fillStyle = C.muted; ctx.fillText(rows.some(r => Number.isFinite(r.volume)) ? '成交量 · BTC' : '成交量暂缺', 10, h - 70);
@@ -173,7 +230,7 @@
   }
   function drawOi() {
     const fit = canvasContext($('oi-chart')); if (!fit) return; const { ctx, w, h } = fit;
-    const rows = oiRows().filter(r => (r.callOi || 0) + (r.putOi || 0) > 0).sort((a,b) => a.strike - b.strike); if (!rows.length) return empty(ctx, w, h, '全行权价 OI 样本暂缺');
+    const rows = T.oiRows(dataset()); if (!rows.length) return empty(ctx, w, h, '全行权价 OI 样本暂缺');
     const left = 12, right = w - 55, zero = h / 2, max = Math.max(...rows.flatMap(r => [r.callOi || 0, r.putOi || 0]), 1), space = right - left;
     const x = value => left + (value - rows[0].strike) / (rows.at(-1).strike - rows[0].strike || 1) * space;
     const gaps = rows.slice(1).map((r, i) => x(r.strike) - x(rows[i].strike)); const bar = Math.max(1, Math.min(14, ...(gaps.length ? gaps : [20])) * .65);
@@ -226,7 +283,7 @@
     put('vol-conclusion', gammaReady && iv > 0 ? `平值 IV ${iv.toFixed(1)}%${rv !== null ? `，近 ${Math.round(days)} 天历史波动 ${rv.toFixed(1)}%` : '；近似同期限历史样本不足'}。` : '平值 IV 暂缺或快照待更新，暂停比较。');
     put('vol-range', range ? `到期简化区间 ${usd(range.low)} — ${usd(range.high)} · ±${range.percent.toFixed(1)}%` : '模型区间暂缺');
     put('vol-sample', `剩余约 ${Number.isFinite(days) ? days.toFixed(1) : '—'} 天 · 期权 ${date(state.gamma?.asOf)} / 现货日 K ${state.candles?.at(-1)?.date || '—'}`);
-    const modelReady = gammaReady && g?.gammaStatus !== 'unavailable' && g?.byStrike?.length > 0;
+    const modelReady = gammaModelReady(g);
     api.selectGamma(modelReady ? g : null);
     const gammaPanel = document.querySelector('.gamma-panel'); gammaPanel.classList.toggle('is-unavailable',!modelReady); gammaPanel.classList.toggle('is-live',Boolean(modelReady));
     put('gamma-state', modelReady ? g.gammaStatus === 'partial' ? '部分模型' : '模型可用' : '待更新');
@@ -261,7 +318,7 @@
   }
   function init() {
     api = window.PULSE_RUNTIME; if (!api) return;
-    setupOptions(); setupTabs(); setupNotes();
+    setupOptions(); setupTabs(); setupNotes(); setupDataTables();
     document.querySelector('[data-overlay-chart="etfRolling"]').checked = true;
     document.addEventListener('click', e => { const a = e.target.closest('a[href^="#"]'); if (a && !e.ctrlKey && !e.metaKey && !e.shiftKey) { e.preventDefault(); if ($('note-sheet').open) closeSheet(); navigate(a.hash); } const zoom = e.target.closest('[data-enlarge]'); if (zoom) enlarge(zoom.dataset.enlarge, zoom); });
     $('mobile-menu').addEventListener('click', () => setDrawer(!document.body.classList.contains('nav-open'))); $('nav-scrim').addEventListener('click', () => setDrawer(false));

@@ -44,6 +44,10 @@ async function main() {
   const deploymentIndex = index.indexOf("./deployment.js");
   const dataIndex = index.indexOf("./data.js");
   const appIndex = index.indexOf("./app.js");
+  const scriptTags = [...index.matchAll(/<script\b([^>]*\bsrc="\.\/([^"?]+)[^"]*"[^>]*)>/g)];
+  check(JSON.stringify(scriptTags.map(match => match[2])) === JSON.stringify(['deployment.js', 'data.js', 'experience-math.js', 'chart-data.js', 'experience.js', 'snapshot-client.js', 'app.js']), '前端脚本依赖顺序不一致');
+  check(scriptTags.every(match => /\bdefer\b/.test(match[1]) && !/\basync\b/.test(match[1])), '所有外部脚本须依次 defer');
+  check(index.includes('/og-image.jpg') && (await stat(join(outputDir, 'og-image.jpg'))).size < 150000, '分享预览未使用压缩 JPEG');
   check(deploymentIndex >= 0 && deploymentIndex < dataIndex && dataIndex < appIndex, "脚本加载顺序必须是 deployment.js → data.js → app.js");
   check(["scan-home", "position-chart", "scan-trend", "scan-capital", "scan-options", "scan-vol"].every(id => index.includes(`id="${id}"`)), "首页缺少价格位置图或四项观察");
   check(index.includes('id="bitcoin-fundamentals"') && index.includes('id="trend-chart"'), "缺少基本面说明或当前趋势图");

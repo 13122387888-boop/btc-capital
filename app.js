@@ -268,6 +268,12 @@
     renderTodayMarketState();
   }
 
+  function canDrawCanvas(canvas) {
+    // Check actual layout, not the original section: zoom moves charts into a dialog.
+    if (!canvas?.isConnected || !canvas.getClientRects().length) return false;
+    const rect = canvas.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  }
   function fitCanvas(canvas) {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const rect = canvas.getBoundingClientRect();
@@ -287,7 +293,7 @@
       .filter(row => row.month && Number.isFinite(row.flow));
   }
   function drawFearGreedGauge(value) {
-    const canvas = $("fng-gauge"); if (!canvas || !Number.isFinite(value)) return;
+    const canvas = $("fng-gauge"); if (!canDrawCanvas(canvas) || !Number.isFinite(value)) return;
     const { ctx, width, height } = fitCanvas(canvas); ctx.clearRect(0, 0, width, height);
     const cx = width / 2, cy = height * .82, radius = Math.min(width * .38, height * .68), start = Math.PI, end = Math.PI * 2;
     const segments = [[0,.25,"#dc625c"],[.25,.45,"#d49b47"],[.45,.56,"#7e847e"],[.56,.76,"#b7ba55"],[.76,1,"#57bd82"]];
@@ -367,7 +373,7 @@
   }
   function drawGammaChart() {
     const canvas = $("gamma-chart"), rows = gammaChartRows;
-    if (!canvas || !rows.length) return;
+    if (!canDrawCanvas(canvas) || !rows.length) return;
     ensureChartStage(canvas);
     const { ctx, width, height } = fitCanvas(canvas); ctx.clearRect(0, 0, width, height);
     const pad = responsiveChartPad(canvas, { l: 72, r: 24, t: 24, b: 42 }, { l: 56, r: 14, t: 20, b: 38 }), plotW = width - pad.l - pad.r, plotH = height - pad.t - pad.b;
@@ -506,6 +512,9 @@
       reason: capitalReason,
       asOf: `Farside / SoSoValue · ${capitalReady && !capitalDateMissing ? `截至 ${etfAsOf}` : "截止日待确认"}`
     });
+    // The section conclusion must update even while the monthly chart is hidden.
+    const etfInsight = $("etf-insight")?.querySelector("span");
+    if (etfInsight) etfInsight.textContent = capitalReason;
 
     setMarketModel("trend", { dataState: marketInputState("price") });
     window.dispatchEvent(new Event("pulse:update"));
@@ -632,7 +641,7 @@
         fetchedAt: btcInputTimes.length ? new Date(Math.min(...btcInputTimes)).toISOString() : null,
         targetSeconds: 15 * 60
       };
-      requestAnimationFrame(() => { drawEtfCombo(); drawEtfRolling(); drawFearGreedKline(); if (defiTrendRows.length) drawDualLine($("defi-chart"), defiTrendRows, { leftFormat: value => `${value.toFixed(0)}B`, rightFormat: value => `${Math.round(value / 1000)}k` }); });
+      requestAnimationFrame(() => { drawEtfCombo(); drawEtfRolling(); drawFearGreedKline(); if (defiTrendRows.length) drawDualLine($("defi-chart"), { leftFormat: value => `${value.toFixed(0)}B`, rightFormat: value => `${Math.round(value / 1000)}k` }); });
       updateMarketInsight(); renderTodayMarketState();
     } catch {
       marketInputMeta.price = { ...marketInputMeta.price, missing: true };
@@ -706,7 +715,7 @@
         ? `过去 ${windowDays} 天${liquidityReading.text}`
         : series.length ? "稳定币历史窗口不在 28–35 天内，暂不推断月度流动性方向。" : "稳定币供给变化暂不可计算。";
       defiTrendRows = series.map(row => ({ label: row.date, left: row.supply / 1e9, right: null })).slice(-740);
-      requestAnimationFrame(() => drawDualLine($("defi-chart"), defiTrendRows, { leftFormat: value => `$${value.toFixed(0)}B`, rightFormat: value => `$${Math.round(value / 1000)}k` }));
+      requestAnimationFrame(() => drawDualLine($("defi-chart"), { leftFormat: value => `$${value.toFixed(0)}B`, rightFormat: value => `$${Math.round(value / 1000)}k` }));
       renderTodayMarketState();
     } catch { setState("defi", "error", Date.now()); $("defi-insight").querySelector("span").textContent = "DeFi 数据服务当前不可达，暂不判断链上流动性方向。"; renderTodayMarketState(); }
   }
@@ -770,12 +779,76 @@
     }).filter(row => row.date && [row.call, row.put, row.ratio].every(Number.isFinite));
   }
 
+  function chartSeries(chart) {
+    let fullRows = [], getDate = row => row.date;
+    if (chart === 'etfRolling') {
+      const candles = new Map(btcCandles.map(row => [row.date, row]));
+      fullRows = etfRollingRows.filter(row => Number.isFinite(row.roll5) || Number.isFinite(row.roll20)).map(row => ({ ...row, candle: candles.get(row.date) || null }));
+    } else if (chart === 'etfCombo') { fullRows = etfComboData(); getDate = row => row.month; }
+    else if (chart === 'options') fullRows = optionChartRows();
+    else if (chart === 'fng') fullRows = btcCandles;
+    else if (chart === 'defi') { fullRows = defiTrendRows.filter(row => Number.isFinite(row.left) && dateValue(row.label) !== null); getDate = row => row.label; }
+    let rows = filterChartRows(fullRows, chartState[chart]?.range, getDate);
+    if (chart === 'defi') { const candles = new Map(btcCandles.map(row => [row.date, row.close])); rows = rows.map(row => ({ ...row, right: candles.get(row.label) ?? null })); }
+    return { fullRows, rows };
+  }
+
+  function readChart(id) {
+    const chart = { 'etf-rolling-chart': 'etfRolling', 'etf-chart': 'etfCombo', 'fng-kline-chart': 'fng', 'defi-chart': 'defi', 'options-chart': 'options' }[id];
+    if (!chart) return null;
+    const { rows } = chartSeries(chart), overlay = chartState[chart].overlay;
+    const notes = [`当前范围：${rangeText(chartState[chart].range)}；日期按 UTC 对齐。`, '仅导出打开弹层时的当前范围；缺失为 —，CSV 留空。'];
+    const gate = { name: 'Gate BTC/USDT 已收盘日 K', url: 'https://www.gate.com/docs/developers/apiv4/en/#market-candlesticks' };
+    const marketNote = `日 K 截至 ${btcCandles.at(-1)?.date || '—'}；抓取 ${currentBtcCandlesAsOf || '—'}。`;
+    const ohlc = [['open', '开盘（USDT）'], ['high', '最高（USDT）'], ['low', '最低（USDT）'], ['close', '收盘（USDT）']];
+    let title, columns, records = rows, sources = [];
+    if (chart === 'etfRolling' || chart === 'etfCombo') {
+      const source = staticData.sources?.etfFlows || {};
+      sources.push({ name: source.provider || 'ETF 公开快照', url: source.url || '' });
+      notes.push(`ETF 数据截至 ${source.asOf || '—'}。`);
+      if (chart === 'etfRolling') {
+        title = 'ETF 近期机构资金';
+        columns = [['date', '交易日'], ['daily', '单日净流（百万 USD）'], ['roll5', '5日净流（百万 USD）'], ['roll20', '20日净流（百万 USD）']];
+        if (overlay) { columns.push(...ohlc); sources.push(gate); notes.push(marketNote); }
+        records = rows.map(row => ({ ...row, ...(row.candle || {}) }));
+        notes.push('滚动净流先用完整历史计算，再截取范围；K 线只匹配同日，不补前值。');
+      } else {
+        title = 'ETF 月度资金与 BTC 价格';
+        columns = [['month', '月份'], ['flow', '净流（百万 USD）']];
+        if (overlay) {
+          columns.push(['price', 'BTC 月末 / 当月现价（USDT / USD）']); sources.push(gate);
+          if (/coingecko/i.test(currentBtcProvider || '')) sources.push({ name: 'CoinGecko USD 聚合现价', url: 'https://www.coingecko.com/en/coins/bitcoin' });
+          notes.push(`历史月价为 Gate BTC/USDT，截至 ${staticData.sources?.btcMonthly?.asOf || '—'}；当月未结束时取 ${currentBtcProvider || '现货'} 当前价，时间 ${currentBtcAsOf || '—'}。USD 与 USDT 可能有价差。`);
+        }
+      }
+    } else if (chart === 'fng') {
+      title = 'BTC K 线与恐贪指数'; columns = [['date', '日期'], ...ohlc]; sources.push(gate); notes.push(marketNote);
+      if (overlay) {
+        const sentiment = new Map(fearGreedRows.map(row => [row.date, row.value]));
+        records = rows.map(row => ({ ...row, sentiment: sentiment.get(row.date) ?? null }));
+        columns.push(['sentiment', '恐贪（0–100）', 0]);
+        sources.push({ name: 'Alternative.me', url: 'https://alternative.me/crypto/fear-and-greed-index/' });
+        notes.push(`恐贪截至 ${fearGreedRows.at(-1)?.date || '—'}；抓取 ${moduleUpdatedAt.sentiment || '—'}；状态 ${sourceStateLabel(sourceStates.sentiment)}。同日匹配，缺失不补前值。`);
+      }
+    } else if (chart === 'defi') {
+      title = '稳定币供给与 BTC'; columns = [['label', '日期'], ['left', '供给（十亿 USD）', 4]];
+      sources.push({ name: 'DefiLlama 稳定币', url: 'https://defillama.com/stablecoins' });
+      notes.push(`供给截至 ${defiTrendRows.at(-1)?.label || '—'}；DeFi 模块最近更新 ${moduleUpdatedAt.defi || '—'}；状态 ${sourceStateLabel(sourceStates.defi)}。模块更新时间不等同于稳定币来源抓取时间。`);
+      if (overlay) { columns.push(['right', 'BTC 收盘（USDT）']); sources.push(gate); notes.push(marketNote); }
+    } else {
+      title = 'IBIT 期权成交'; columns = [['date', '交易日'], ['call', 'Call 成交（张）', 0], ['put', 'Put 成交（张）', 0], ['ratio', 'Put / Call', 4], ['openInterest', 'OI（张）', 0]];
+      const source = staticData.sources?.ibitOptions || {};
+      sources.push({ name: source.provider || 'IBIT 期权快照', url: source.url || '' });
+      notes.push(`数据截至 ${source.asOf || '—'}。IBIT 单位为张，不与 Deribit BTC 单位混算。`);
+    }
+    return window.PulseChartData.create({ title, columns, rows: records, notes, sources });
+  }
+
   function drawOptionsChart() {
-    const canvas = $("options-chart"); if (!canvas) return;
+    const canvas = $("options-chart"); if (!canDrawCanvas(canvas)) return;
     ensureChartStage(canvas);
-    const fullRows = optionChartRows();
+    const { fullRows, rows } = chartSeries('options');
     updateRangeAvailability("options", fullRows, row => row.date);
-    const rows = filterChartRows(fullRows, chartState.options.range, row => row.date);
     if (rows.length < 2) return;
     const { ctx, width, height } = fitCanvas(canvas); ctx.clearRect(0, 0, width, height);
     const pad = responsiveChartPad(canvas, { l: 62, r: 58, t: 18, b: 36 }, { l: 46, r: 38, t: 16, b: 34 }), plotH = height - pad.t - pad.b, scale = chartTimeScale(rows, row => row.date, pad.l, width - pad.r);
@@ -797,14 +870,12 @@
     });
   }
 
-  function drawDualLine(canvas, inputRows, options) {
-    if (!canvas) return;
+  function drawDualLine(canvas, options) {
+    if (!canDrawCanvas(canvas)) return;
     ensureChartStage(canvas);
-    const fullRows = Array.isArray(inputRows) ? inputRows.filter(row => Number.isFinite(row.left) && dateValue(row.label) !== null) : [];
     if (canvas.id !== "defi-chart") return;
+    const { fullRows, rows } = chartSeries('defi');
     updateRangeAvailability("defi", fullRows, row => row.label);
-    const candleMap = new Map(btcCandles.map(row => [row.date, row.close]));
-    const rows = filterChartRows(fullRows, chartState.defi.range, row => row.label).map(row => ({ ...row, right: candleMap.get(row.label) ?? null }));
     if (rows.length < 2) return;
     const { ctx, width, height } = fitCanvas(canvas); ctx.clearRect(0, 0, width, height);
     const showPrice = chartState.defi.overlay && rows.some(row => Number.isFinite(row.right));
@@ -969,11 +1040,10 @@
   }
 
   function drawEtfCombo() {
-    const canvas = $("etf-chart"); if (!canvas) return;
+    const canvas = $("etf-chart"); if (!canDrawCanvas(canvas)) return;
     ensureChartStage(canvas);
-    const fullRows = etfComboData();
+    const { fullRows, rows } = chartSeries('etfCombo');
     updateRangeAvailability("etfCombo", fullRows, row => row.month);
-    const rows = filterChartRows(fullRows, chartState.etfCombo.range, row => row.month);
     if (rows.length < 2) return;
     const { ctx, width, height } = fitCanvas(canvas); ctx.clearRect(0, 0, width, height);
     const showPrice = chartState.etfCombo.overlay && rows.some(row => Number.isFinite(row.price));
@@ -996,10 +1066,6 @@
     ctx.textAlign = "center"; ctx.textBaseline = "top"; ctx.fillStyle = "#747b74"; rows.forEach((row, index) => { if (index % Math.max(1, Math.ceil(rows.length / 6)) === 0 || index === rows.length - 1) ctx.fillText(row.month.replace("-", "/"), scale.x(row), height - pad.b + 10); });
     const total = rows.reduce((sum, row) => sum + row.flow, 0), positive = rows.filter(row => row.flow > 0).length, maximum = Math.max(...rows.map(row => row.flow));
     $("etf-window").textContent = flow(total); $("etf-hit").textContent = `${(positive / rows.length * 100).toFixed(1)}%`; $("etf-max").textContent = flow(maximum); tone($("etf-window"), total);
-    const recent = rows.slice(-3), recentFlow = recent.reduce((sum, row) => sum + row.flow, 0), priced = recent.filter(row => Number.isFinite(row.price)), priceChange = priced.length > 1 ? (priced.at(-1).price / priced[0].price - 1) * 100 : null;
-    let conclusion = `所选 ${rangeText(chartState.etfCombo.range)} 内 ETF 合计${total >= 0 ? "净流入" : "净流出"} ${flow(Math.abs(total)).replace("+", "")}`;
-    if (Number.isFinite(priceChange)) conclusion += `；最近 3 个月 BTC ${priceChange >= 0 ? "上涨" : "下跌"} ${Math.abs(priceChange).toFixed(1)}%`;
-    $("etf-insight").querySelector("span").textContent = todayMarketModels.capital?.reason || `${conclusion}。`;
     bindChartHover(canvas, {
       rows, value: row => dateValue(row.month), domain: [scale.minimum, scale.maximum], pad, title: row => row.month,
       lines: row => [{ label: "ETF 月度净流", value: flow(row.flow) }, showPrice ? { label: "BTC 月末/当前", value: fmtUsd(row.price, 0) } : null]
@@ -1007,10 +1073,10 @@
   }
 
   function drawFearGreedKline() {
-    const canvas = $("fng-kline-chart"); if (!canvas || btcCandles.length < 2) return;
+    const canvas = $("fng-kline-chart"); if (!canDrawCanvas(canvas) || btcCandles.length < 2) return;
     ensureChartStage(canvas);
     updateRangeAvailability("fng", btcCandles, row => row.date);
-    const candles = filterChartRows(btcCandles, chartState.fng.range, row => row.date);
+    const { rows: candles } = chartSeries('fng');
     if (candles.length < 2) return;
     const fngMap = new Map(fearGreedRows.map(row => [row.date, row.value]));
     const { ctx, width, height } = fitCanvas(canvas); ctx.clearRect(0, 0, width, height);
@@ -1190,7 +1256,7 @@
     if (chart === "etfCombo") drawEtfCombo();
     if (chart === "fng") drawFearGreedKline();
     if (chart === "options") drawOptionsChart();
-    if (chart === "defi") drawDualLine($("defi-chart"), defiTrendRows, { leftFormat: value => `$${value.toFixed(0)}B`, rightFormat: value => `$${Math.round(value / 1000)}k` });
+    if (chart === "defi") drawDualLine($("defi-chart"), { leftFormat: value => `$${value.toFixed(0)}B`, rightFormat: value => `$${Math.round(value / 1000)}k` });
   }
 
   function setupChartControls() {
@@ -1214,12 +1280,10 @@
   }
 
   function drawEtfRolling() {
-    const canvas = $("etf-rolling-chart"); if (!canvas) return;
+    const canvas = $("etf-rolling-chart"); if (!canDrawCanvas(canvas)) return;
     ensureChartStage(canvas);
-    const candleMap = new Map(btcCandles.map(row => [row.date, row]));
-    const fullRows = etfRollingRows.filter(row => Number.isFinite(row.roll5) || Number.isFinite(row.roll20)).map(row => ({ ...row, candle: candleMap.get(row.date) || null }));
+    const { fullRows, rows } = chartSeries('etfRolling');
     updateRangeAvailability("etfRolling", fullRows, row => row.date);
-    const rows = filterChartRows(fullRows, chartState.etfRolling.range, row => row.date);
     const { ctx, width, height } = fitCanvas(canvas); ctx.clearRect(0, 0, width, height);
     if (rows.length < 2) {
       ctx.fillStyle = "#747b74"; ctx.font = '13px "Microsoft YaHei"'; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText("ETF 历史覆盖不足，暂不能绘制所选范围", width / 2, height / 2); return;
@@ -1372,12 +1436,13 @@
     if (nextWidth === viewportWidth) return;
     viewportWidth = nextWidth;
     clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(() => { drawEtfCombo(); drawEtfRolling(); if (Number.isFinite(currentFearGreed)) drawFearGreedGauge(currentFearGreed); drawFearGreedKline(); drawOptionsChart(); drawGammaChart(); if (defiTrendRows.length) drawDualLine($("defi-chart"), defiTrendRows, { leftFormat: v => `$${v.toFixed(0)}B`, rightFormat: v => `$${Math.round(v / 1000)}k` }); }, 160);
+    resizeTimer = setTimeout(() => { drawEtfCombo(); drawEtfRolling(); if (Number.isFinite(currentFearGreed)) drawFearGreedGauge(currentFearGreed); drawFearGreedKline(); drawOptionsChart(); drawGammaChart(); if (defiTrendRows.length) drawDualLine($("defi-chart"), { leftFormat: v => `$${v.toFixed(0)}B`, rightFormat: v => `$${Math.round(v / 1000)}k` }); }, 160);
   });
   window.PULSE_RUNTIME = Object.freeze({
     read: () => ({ candles: btcCandles, price: latestBtcPrice, change: currentBtcChange, priceAsOf: currentBtcAsOf, candleAsOf: currentBtcCandlesAsOf, provider: currentBtcProvider, gamma: optionsPayload || gammaPayload, states: todayMarketModels, staticData, snapshotStale: isSnapshotStale(), sourceStates: { ...sourceStates }, generatedAt: activeSnapshotGeneratedAt }),
     refresh: refreshLiveDataInBackground,
-    redraw: () => { drawEtfCombo(); drawEtfRolling(); drawFearGreedKline(); drawOptionsChart(); drawGammaChart(); if (Number.isFinite(currentFearGreed)) drawFearGreedGauge(currentFearGreed); if (defiTrendRows.length) drawDualLine($("defi-chart"), defiTrendRows, { leftFormat: v => `$${v.toFixed(0)}B`, rightFormat: v => `$${Math.round(v / 1000)}k` }); },
+    readChart,
+    redraw: () => { drawEtfCombo(); drawEtfRolling(); drawFearGreedKline(); drawOptionsChart(); drawGammaChart(); if (Number.isFinite(currentFearGreed)) drawFearGreedGauge(currentFearGreed); if (defiTrendRows.length) drawDualLine($("defi-chart"), { leftFormat: v => `$${v.toFixed(0)}B`, rightFormat: v => `$${Math.round(v / 1000)}k` }); },
     selectGamma: data => { gammaChartRows = (data?.byStrike || []).map(row => ({ ...row })); gammaSpot = num(data?.spot); gammaNetGex = num(data?.netGex); if (!gammaChartRows.length) { const canvas = $("gamma-chart"); canvas?.getContext("2d")?.clearRect(0, 0, canvas.width, canvas.height); if (canvas) chartBindings.delete(canvas); } else drawGammaChart(); }
   });
   init();

@@ -4,6 +4,9 @@ import { readFile } from "node:fs/promises";
 const files = ["index.html", "app.js", "experience.js", "styles.css", "enhancements.css", "experience.css"];
 const sources = Object.fromEntries(await Promise.all(files.map(async file => [file, await readFile(new URL(`../${file}`, import.meta.url), "utf8")])));
 const index = sources["index.html"];
+const scriptTags = [...index.matchAll(/<script\b([^>]*\bsrc="\.\/([^"?]+)[^"]*"[^>]*)>/g)];
+assert.deepEqual(scriptTags.map(match => match[2]), ['deployment.js', 'data.js', 'experience-math.js', 'chart-data.js', 'experience.js', 'snapshot-client.js', 'app.js']);
+assert.ok(scriptTags.every(match => /\bdefer\b/.test(match[1]) && !/\basync\b/.test(match[1])), '外部脚本必须依次 defer，不能 async');
 assert.ok(index.includes('<body class="experience">') && index.includes('<noscript>') && index.includes('dataset.initialView'), '首屏样式、初始路由和无 JS 提示必须直接可用');
 for (const id of ['view-mode', 'refresh-data', 'share-view', 'expiry-select', 'oi-chart', 'vol-chart']) {
   assert.ok(index.includes(`id="${id}"`), `${id} 必须有静态首屏骨架`);

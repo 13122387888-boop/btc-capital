@@ -21,7 +21,11 @@
 
 虚线术语及“口径与来源”打开底部弹层，包含来源、方法、样本、更新时间和局限。支持系统“图片＋链接”分享；不支持文件分享时提供保存图片、复制链接，具体行为取决于浏览器和系统。
 
+八张关键图表提供“查看数据”：价格结构、ETF 近期/月度、OI、Gamma、BTC×恐贪、稳定币×BTC、IBIT 成交。沿用底部弹层，每页 25 行，可导出当前范围的全部 CSV；默认页面不铺开大表。表格与图表共用范围/到期日筛选，打开时固定数据和日期，后台更新不会改变这次导出；关闭后重开读取最新值。SMA 与 ETF 滚动值先用完整历史计算再截取，缺失显示 `—`、CSV 留空，Put OI 为正数量而 Put GEX 保留代理负号。导出包含来源、单位和日期，中文 UTF-8 BOM，字符串做 CSV 转义与公式防护。
+
 首屏在 HTML 中预设新版样式、顶部操作和期权面板；加载前按 hash 选定分区，避免先显示全部详情再折叠。禁用 JavaScript 或初始化失败时会显示说明。提供 favicon、Apple 主屏幕图标、深色 theme-color 及静态 OG / Twitter 预览信息；预览图不包含实时价格，微信等平台的卡片效果仍取决于其抓取和缓存机制。未加入离线 Service Worker。
+
+外部脚本保持依赖顺序并使用 `defer`，不使用打乱顺序的 `async`。旧图表在无布局尺寸时跳过绘制，切回页面/标签或放大后重画；不按滚动视口截断，因此页面下方的图仍可正常显示。部分低对比说明字单独调亮，手机主要按钮至少 44px 高，不全面放大布局。静态分享预览改用同尺寸 JPEG（约 87 KB，比原 PNG 小 90.9%），保留旧 PNG 兼容已分享地址。未改变数据来源、缓存有效期或画布 DPR 上限。
 
 ## 本地运行
 
@@ -164,6 +168,7 @@ npm run test:deribit
 npm run test:experience
 npm run test:structure
 npm run test:snapshots
+npm run test:chart-data
 npm run build:pages
 npm run validate:pages
 ```
